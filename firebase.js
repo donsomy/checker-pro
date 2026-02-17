@@ -13,3 +13,5 @@ const firebaseConfig = {
 
 firebase.initializeApp(firebaseConfig);
 const db = firebase.database();
+console.log("Firebase loaded:", firebase);
+console.log("DB loaded:", db);
