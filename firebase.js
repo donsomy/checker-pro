@@ -1,14 +1,8 @@
-// Import the functions you need from the SDKs you need
-import { initializeApp } from "firebase/app";
-import { getAnalytics } from "firebase/analytics";
-// TODO: Add SDKs for Firebase products that you want to use
-// https://firebase.google.com/docs/web/setup#available-libraries
-
-// Your web app's Firebase configuration
-// For Firebase JS SDK v7.20.0 and later, measurementId is optional
+js
 const firebaseConfig = {
   apiKey: "AIzaSyD2DlQJbmDm5PUQsHCmT80ImosRpEhOO5Y",
   authDomain: "checkers-ikpupro.firebaseapp.com",
+  databaseURL: "https://checkers-ikpupro-default-rtdb.firebaseio.com",
   projectId: "checkers-ikpupro",
   storageBucket: "checkers-ikpupro.firebasestorage.app",
   messagingSenderId: "291151514355",
