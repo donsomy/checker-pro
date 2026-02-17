@@ -333,12 +333,29 @@ function syncOnlineGame() {
 
   const winner = isGameOver(turn) ? (turn === "red" ? "Black" : "Red") : null;
 
-  db.ref("rooms/" + roomId + "/game").update({
-    board,
-    turn,
-    mustContinueChain,
-    winner
-  });
+  db.ref("rooms/" + roomId + "/game").set({
+  board,
+  turn,
+  mustContinueChain,
+  winner
+});
+}
+
+function normalizeBoard(b) {
+  if (!b) return null;
+
+  // If already an array, keep it
+  if (Array.isArray(b)) return b;
+
+  // Convert object -> array (Firebase sometimes returns objects)
+  const arr = [];
+  for (let r = 0; r < SIZE; r++) {
+    arr[r] = [];
+    for (let c = 0; c < SIZE; c++) {
+      arr[r][c] = b?.[r]?.[c] ?? null;
+    }
+  }
+  return arr;
 }
 
 function listenToRoom(id) {
@@ -354,7 +371,7 @@ function listenToRoom(id) {
       return;
     }
 
-    board = data.game.board;
+    board = board = normalizeBoard(data.game.board);
     turn = data.game.turn;
     mustContinueChain = data.game.mustContinueChain || false;
 
