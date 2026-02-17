@@ -317,7 +317,7 @@ function isGameOver(colorToPlay) {
 function syncOnlineGame() {
   if (!online || !roomId) return;
 
-  const winner = isGameOver(turn) ? (turn === "red" ? "Black" : "Red") : null;
+ const winner = isGameOver(turn) ? (turn === "red" ? "Black" : "Red") : null;
 
   db.ref("rooms/" + roomId + "/game").update({
     board,
