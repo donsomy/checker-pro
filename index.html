@@ -1,0 +1,57 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Checkers Pro</title>
+
+  <link rel="stylesheet" href="style.css" />
+  <link rel="manifest" href="manifest.json" />
+  <meta name="theme-color" content="#121826" />
+
+  <!-- Firebase (compat) -->
+  <script src="https://www.gstatic.com/firebasejs/10.12.5/firebase-app-compat.js"></script>
+  <script src="https://www.gstatic.com/firebasejs/10.12.5/firebase-database-compat.js"></script>
+
+</head>
+<body>
+  <div class="app">
+    <header>
+      <h1>Checkers Pro</h1>
+
+      <div class="status">
+        <span id="turnLabel">Turn: Red</span>
+        <span id="message"></span>
+      </div>
+
+      <div class="actions">
+        <button id="restartBtn">Restart</button>
+
+        <button id="createRoomBtn">Create Online Room</button>
+        <button id="joinRoomBtn">Join Room</button>
+
+        <button id="modeBtn">Mode: 2 Player</button>
+      </div>
+    </header>
+
+    <main>
+      <div id="board" class="board"></div>
+    </main>
+
+    <footer>
+      <p>Tap a piece → tap a highlighted square.</p>
+      <p class="tiny">Tip: Online mode disables AI mode.</p>
+    </footer>
+  </div>
+
+  <script src="firebase.js"></script>
+  <script src="app.js"></script>
+
+  <script>
+    // PWA offline
+    if ("serviceWorker" in navigator) {
+      navigator.serviceWorker.register("./sw.js");
+    }
+  </script>
+</body>
+</html>
