@@ -335,8 +335,13 @@ function listenToRoom(id) {
     if (!data) return;
 
     // Sync board
-    board = data.game.board;
-    turn = data.game.turn;
+   if (!data.game || !data.game.board) {
+  initBoard();
+  return;
+}
+
+board = data.game.board;
+turn = data.game.turn;
     mustContinueChain = data.game.mustContinueChain || false;
 
     selected = null;
@@ -357,6 +362,8 @@ createRoomBtn.addEventListener("click", async () => {
   mode = "2p";
   modeBtn.textContent = "Mode: 2 Player";
 
+  initBoard(); // ✅ ADD THIS LINE (so board is never empty)
+
   roomId = Math.random().toString(36).slice(2, 8).toUpperCase();
   playerRole = "red";
 
@@ -372,6 +379,11 @@ createRoomBtn.addEventListener("click", async () => {
       winner: null
     }
   });
+
+  listenToRoom(roomId);
+  updateTurnLabel();
+  alert("Room created! Code: " + roomId);
+});
 
   listenToRoom(roomId);
   updateTurnLabel();
