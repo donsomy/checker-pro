@@ -1,4 +1,4 @@
-js
+
 const firebaseConfig = {
   apiKey: "AIzaSyD2DlQJbmDm5PUQsHCmT80ImosRpEhOO5Y",
   authDomain: "checkers-ikpupro.firebaseapp.com",
