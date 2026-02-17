@@ -28,6 +28,50 @@ let online = false;
 let roomId = null;
 let playerRole = null; // "red" or "black"
 let roomRef = null;
+let onlineReady = false; // BOTH players joined?
+
+// ---------------- Helpers ----------------
+
+function setMessage(msg) {
+  messageEl.textContent = msg;
+}
+
+function updateTurnLabel() {
+  const t = turn === "red" ? "Red" : "Black";
+
+  let m = "2 Player";
+  if (online) m = `Online (${playerRole || "?"})`;
+  else if (mode === "ai") m = `AI (${aiDifficulty})`;
+
+  turnLabel.textContent = `Turn: ${t} • Mode: ${m}`;
+}
+
+function inBounds(r, c) {
+  return r >= 0 && r < SIZE && c >= 0 && c < SIZE;
+}
+
+function getDirections(piece) {
+  if (piece.king) return [-1, 1];
+  return piece.color === "red" ? [-1] : [1];
+}
+
+// Firebase sometimes returns arrays as objects
+function normalizeBoard(b) {
+  if (!b) return null;
+
+  // already correct
+  if (Array.isArray(b)) return b;
+
+  // object -> array
+  const arr = [];
+  for (let r = 0; r < SIZE; r++) {
+    arr[r] = [];
+    for (let c = 0; c < SIZE; c++) {
+      arr[r][c] = b?.[r]?.[c] ?? null;
+    }
+  }
+  return arr;
+}
 
 // ---------------- Core ----------------
 
@@ -53,34 +97,11 @@ function initBoard() {
   legalMoves = [];
   mustContinueChain = false;
 
-  setMessage("");
   updateTurnLabel();
   render();
 
+  // only AI if not online
   maybeAIMove();
-}
-
-function setMessage(msg) {
-  messageEl.textContent = msg;
-}
-
-function updateTurnLabel() {
-  const t = turn === "red" ? "Red" : "Black";
-
-  let m = "2 Player";
-  if (online) m = `Online (${playerRole || "?"})`;
-  else if (mode === "ai") m = `AI (${aiDifficulty})`;
-
-  turnLabel.textContent = `Turn: ${t} • Mode: ${m}`;
-}
-
-function inBounds(r, c) {
-  return r >= 0 && r < SIZE && c >= 0 && c < SIZE;
-}
-
-function getDirections(piece) {
-  if (piece.king) return [-1, 1];
-  return piece.color === "red" ? [-1] : [1];
 }
 
 function getMovesFrom(r, c, includeSimple = true) {
@@ -121,6 +142,11 @@ function getMovesFrom(r, c, includeSimple = true) {
 function getAllMovesFor(color) {
   const movesByFrom = new Map();
   let anyCapture = false;
+
+  // SAFETY: if color is undefined somehow, stop
+  if (color !== "red" && color !== "black") {
+    return { hasCapture: false, movesByFrom };
+  }
 
   for (let r = 0; r < SIZE; r++) {
     for (let c = 0; c < SIZE; c++) {
@@ -204,6 +230,12 @@ function render() {
 }
 
 function onSquareClick(e) {
+  // Online: block until both players are ready
+  if (online && !onlineReady) {
+    setMessage("Waiting for player...");
+    return;
+  }
+
   // Online: block if not your turn
   if (online && playerRole !== turn) {
     setMessage("Not your turn.");
@@ -334,28 +366,11 @@ function syncOnlineGame() {
   const winner = isGameOver(turn) ? (turn === "red" ? "Black" : "Red") : null;
 
   db.ref("rooms/" + roomId + "/game").set({
-  board,
-  turn,
-  mustContinueChain,
-  winner
-});
-}
-
-function normalizeBoard(b) {
-  if (!b) return null;
-
-  // If already an array, keep it
-  if (Array.isArray(b)) return b;
-
-  // Convert object -> array (Firebase sometimes returns objects)
-  const arr = [];
-  for (let r = 0; r < SIZE; r++) {
-    arr[r] = [];
-    for (let c = 0; c < SIZE; c++) {
-      arr[r][c] = b?.[r]?.[c] ?? null;
-    }
-  }
-  return arr;
+    board,
+    turn,
+    mustContinueChain,
+    winner
+  });
 }
 
 function listenToRoom(id) {
@@ -365,15 +380,27 @@ function listenToRoom(id) {
     const data = snap.val();
     if (!data) return;
 
-    // SAFETY: if game data missing, do not wipe board
+    // detect player readiness
+    const redIn = !!data.players?.red;
+    const blackIn = !!data.players?.black;
+    onlineReady = redIn && blackIn;
+
+    if (!onlineReady) {
+      setMessage("Waiting for player...");
+    }
+
+    // if game isn't ready, don't crash
     if (!data.game || !data.game.board) {
-      initBoard();
+      updateTurnLabel();
       return;
     }
 
-    board = board = normalizeBoard(data.game.board);
-    turn = data.game.turn;
-    mustContinueChain = data.game.mustContinueChain || false;
+    const fixedBoard = normalizeBoard(data.game.board);
+    if (!fixedBoard) return;
+
+    board = fixedBoard;
+    turn = data.game.turn ?? "red";
+    mustContinueChain = data.game.mustContinueChain ?? false;
 
     selected = null;
     legalMoves = [];
@@ -381,6 +408,7 @@ function listenToRoom(id) {
     updateTurnLabel();
 
     if (data.game.winner) setMessage(data.game.winner + " wins!");
+    else if (!onlineReady) setMessage("Waiting for player...");
     else setMessage("");
 
     render();
@@ -393,7 +421,7 @@ createRoomBtn.addEventListener("click", async () => {
   mode = "2p";
   modeBtn.textContent = "Mode: 2 Player";
 
-  initBoard(); // ✅ FIX: make sure board exists before saving online
+  initBoard();
 
   roomId = Math.random().toString(36).slice(2, 8).toUpperCase();
   playerRole = "red";
@@ -413,6 +441,7 @@ createRoomBtn.addEventListener("click", async () => {
 
   listenToRoom(roomId);
   updateTurnLabel();
+
   alert("Room created! Code: " + roomId);
 });
 
@@ -521,7 +550,7 @@ function scoreMove(action) {
 // -------- HARD AI (Minimax + alpha-beta) --------
 
 function pickHardMove(actions) {
-  const depth = 5; // increase to 6 for super hard (slower)
+  const depth = 5;
   let best = null;
   let bestScore = -Infinity;
 
@@ -586,7 +615,6 @@ function simulateMove(from, move) {
 
   if (move.capture) board[move.capture.r][move.capture.c] = null;
 
-  // Promote
   if (!piece.king) {
     if (piece.color === "red" && move.to.r === 0) piece.king = true;
     if (piece.color === "black" && move.to.r === SIZE - 1) piece.king = true;
@@ -607,10 +635,8 @@ function evaluateBoard(perspectiveColor) {
 
       let val = p.king ? 5 : 3;
 
-      // center bonus
       if (c >= 2 && c <= 5) val += 0.3;
 
-      // advancement bonus
       if (!p.king) {
         if (p.color === "black") val += r * 0.15;
         if (p.color === "red") val += (7 - r) * 0.15;
@@ -630,7 +656,7 @@ restartBtn.addEventListener("click", () => {
   initBoard();
 
   if (online && roomId) {
-    db.ref("rooms/" + roomId + "/game").update({
+    db.ref("rooms/" + roomId + "/game").set({
       board,
       turn,
       mustContinueChain: false,
