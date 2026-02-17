@@ -1,3 +1,4 @@
+// ---------------- DOM ----------------
 const boardEl = document.getElementById("board");
 const turnLabel = document.getElementById("turnLabel");
 const messageEl = document.getElementById("message");
@@ -7,6 +8,7 @@ const modeBtn = document.getElementById("modeBtn");
 const createRoomBtn = document.getElementById("createRoomBtn");
 const joinRoomBtn = document.getElementById("joinRoomBtn");
 
+// ---------------- Game Config ----------------
 const SIZE = 8;
 
 // board[r][c] = null or { color: "red"|"black", king: boolean }
@@ -32,12 +34,14 @@ let roomRef = null;
 function initBoard() {
   board = Array.from({ length: SIZE }, () => Array(SIZE).fill(null));
 
+  // Black at top
   for (let r = 0; r < 3; r++) {
     for (let c = 0; c < SIZE; c++) {
       if ((r + c) % 2 === 1) board[r][c] = { color: "black", king: false };
     }
   }
 
+  // Red at bottom
   for (let r = 5; r < 8; r++) {
     for (let c = 0; c < SIZE; c++) {
       if ((r + c) % 2 === 1) board[r][c] = { color: "red", king: false };
@@ -100,7 +104,11 @@ function getMovesFrom(r, c, includeSimple = true) {
 
       // Capture
       if (inBounds(r2, c2) && board[r2][c2] === null) {
-        if (inBounds(r1, c1) && board[r1][c1] && board[r1][c1].color !== p.color) {
+        if (
+          inBounds(r1, c1) &&
+          board[r1][c1] &&
+          board[r1][c1].color !== p.color
+        ) {
           results.push({ to: { r: r2, c: c2 }, capture: { r: r1, c: c1 } });
         }
       }
@@ -120,14 +128,18 @@ function getAllMovesFor(color) {
       if (!p || p.color !== color) continue;
 
       const moves = getMovesFrom(r, c, true);
-      if (moves.some(m => m.capture)) anyCapture = true;
+      if (moves.some((m) => m.capture)) anyCapture = true;
       movesByFrom.set(`${r},${c}`, moves);
     }
   }
 
+  // If any capture exists, force capture-only moves
   if (anyCapture) {
     for (const [k, moves] of movesByFrom.entries()) {
-      movesByFrom.set(k, moves.filter(m => m.capture));
+      movesByFrom.set(
+        k,
+        moves.filter((m) => m.capture)
+      );
     }
   }
 
@@ -142,15 +154,17 @@ function render() {
   for (let r = 0; r < SIZE; r++) {
     for (let c = 0; c < SIZE; c++) {
       const sq = document.createElement("div");
-      sq.className = "square " + (((r + c) % 2 === 0) ? "light" : "dark");
+      sq.className = "square " + ((r + c) % 2 === 0 ? "light" : "dark");
       sq.dataset.r = r;
       sq.dataset.c = c;
 
       // Move hints
       if (selected) {
-        const isTarget = legalMoves.some(m => m.to.r === r && m.to.c === c);
+        const isTarget = legalMoves.some((m) => m.to.r === r && m.to.c === c);
         if (isTarget) {
-          const move = legalMoves.find(m => m.to.r === r && m.to.c === c);
+          const move = legalMoves.find(
+            (m) => m.to.r === r && m.to.c === c
+          );
           sq.classList.add(move.capture ? "captureHint" : "hint");
         }
       }
@@ -174,7 +188,7 @@ function render() {
         // forced capture highlight
         if (!mustContinueChain && hasCapture) {
           const moves = movesByFrom.get(`${r},${c}`) || [];
-          if (p.color === turn && moves.some(m => m.capture)) {
+          if (p.color === turn && moves.some((m) => m.capture)) {
             piece.style.boxShadow =
               "0 0 0 3px rgba(255,183,3,0.65), 0 10px 18px rgba(0,0,0,0.35)";
           }
@@ -205,7 +219,7 @@ function onSquareClick(e) {
 
   // Multi capture chain lock
   if (mustContinueChain && selected) {
-    const move = legalMoves.find(m => m.to.r === r && m.to.c === c);
+    const move = legalMoves.find((m) => m.to.r === r && m.to.c === c);
     if (move) applyMove(selected.r, selected.c, move);
     else setMessage("You must continue capturing.");
     return;
@@ -219,7 +233,7 @@ function onSquareClick(e) {
 
   // Move
   if (selected) {
-    const move = legalMoves.find(m => m.to.r === r && m.to.c === c);
+    const move = legalMoves.find((m) => m.to.r === r && m.to.c === c);
     if (move) applyMove(selected.r, selected.c, move);
     else {
       setMessage("");
@@ -234,7 +248,7 @@ function selectPiece(r, c) {
   const { hasCapture, movesByFrom } = getAllMovesFor(turn);
   const moves = movesByFrom.get(`${r},${c}`) || [];
 
-  if (hasCapture && !moves.some(m => m.capture)) {
+  if (hasCapture && !moves.some((m) => m.capture)) {
     setMessage("Capture is available — you must capture.");
     return;
   }
@@ -264,7 +278,7 @@ function applyMove(fr, fc, move) {
 
   // Multi jump
   if (move.capture) {
-    const nextMoves = getMovesFrom(tr, tc, false).filter(m => m.capture);
+    const nextMoves = getMovesFrom(tr, tc, false).filter((m) => m.capture);
     if (nextMoves.length) {
       selected = { r: tr, c: tc };
       legalMoves = nextMoves;
@@ -317,7 +331,7 @@ function isGameOver(colorToPlay) {
 function syncOnlineGame() {
   if (!online || !roomId) return;
 
- const winner = isGameOver(turn) ? (turn === "red" ? "Black" : "Red") : null;
+  const winner = isGameOver(turn) ? (turn === "red" ? "Black" : "Red") : null;
 
   db.ref("rooms/" + roomId + "/game").update({
     board,
@@ -334,14 +348,14 @@ function listenToRoom(id) {
     const data = snap.val();
     if (!data) return;
 
-    // Sync board
-   if (!data.game || !data.game.board) {
-  initBoard();
-  return;
-}
+    // SAFETY: if game data missing, do not wipe board
+    if (!data.game || !data.game.board) {
+      initBoard();
+      return;
+    }
 
-board = data.game.board;
-turn = data.game.turn;
+    board = data.game.board;
+    turn = data.game.turn;
     mustContinueChain = data.game.mustContinueChain || false;
 
     selected = null;
@@ -362,7 +376,7 @@ createRoomBtn.addEventListener("click", async () => {
   mode = "2p";
   modeBtn.textContent = "Mode: 2 Player";
 
-  initBoard(); // ✅ ADD THIS LINE (so board is never empty)
+  initBoard(); // ✅ FIX: make sure board exists before saving online
 
   roomId = Math.random().toString(36).slice(2, 8).toUpperCase();
   playerRole = "red";
@@ -379,11 +393,6 @@ createRoomBtn.addEventListener("click", async () => {
       winner: null
     }
   });
-
-  listenToRoom(roomId);
-  updateTurnLabel();
-  alert("Room created! Code: " + roomId);
-});
 
   listenToRoom(roomId);
   updateTurnLabel();
@@ -441,9 +450,13 @@ function aiMakeMove() {
   if (!actions.length) return;
 
   let chosen;
-  if (aiDifficulty === "easy") chosen = actions[Math.floor(Math.random() * actions.length)];
-  else if (aiDifficulty === "medium") chosen = pickMediumMove(actions);
-  else chosen = pickHardMove(actions);
+  if (aiDifficulty === "easy") {
+    chosen = actions[Math.floor(Math.random() * actions.length)];
+  } else if (aiDifficulty === "medium") {
+    chosen = pickMediumMove(actions);
+  } else {
+    chosen = pickHardMove(actions);
+  }
 
   applyMove(chosen.from.r, chosen.from.c, chosen.move);
 }
@@ -617,6 +630,7 @@ modeBtn.addEventListener("click", () => {
 
   if (mode === "2p") {
     mode = "ai";
+    aiDifficulty = "hard";
     modeBtn.textContent = "Mode: AI (Hard)";
   } else {
     mode = "2p";
@@ -627,4 +641,5 @@ modeBtn.addEventListener("click", () => {
   initBoard();
 });
 
+// ---------------- Start ----------------
 initBoard();
