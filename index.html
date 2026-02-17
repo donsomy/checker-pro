@@ -2,56 +2,45 @@
 <html lang="en">
 <head>
   <meta charset="UTF-8" />
-  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0"/>
   <title>Checkers Pro</title>
-
-  <link rel="stylesheet" href="style.css" />
-  <link rel="manifest" href="manifest.json" />
-  <meta name="theme-color" content="#121826" />
-
-  <!-- Firebase (compat) -->
-  <script src="https://www.gstatic.com/firebasejs/10.12.5/firebase-app-compat.js"></script>
-  <script src="https://www.gstatic.com/firebasejs/10.12.5/firebase-database-compat.js"></script>
-
+  <link rel="stylesheet" href="style.css"/>
 </head>
 <body>
   <div class="app">
-    <header>
-      <h1>Checkers Pro</h1>
-
-      <div class="status">
-        <span id="turnLabel">Turn: Red</span>
-        <span id="message"></span>
+    <header class="top">
+      <div class="brand">
+        <div class="title">Checkers Pro</div>
+        <div class="subtitle" id="turnLabel">Turn: Red • Mode: 2 Player</div>
       </div>
 
-      <div class="actions">
-        <button id="restartBtn">Restart</button>
-
-        <button id="createRoomBtn">Create Online Room</button>
-        <button id="joinRoomBtn">Join Room</button>
-
-        <button id="modeBtn">Mode: 2 Player</button>
+      <div class="controls">
+        <button id="restartBtn" class="btn">Restart</button>
+        <button id="createRoomBtn" class="btn">Create Online Room</button>
+        <button id="joinRoomBtn" class="btn">Join Room</button>
+        <button id="modeBtn" class="btn">Mode: 2 Player</button>
       </div>
     </header>
 
-    <main>
-      <div id="board" class="board"></div>
+    <main class="main">
+      <div id="board" class="board" aria-label="Checkers board"></div>
     </main>
 
-    <footer>
-      <p>Tap a piece → tap a highlighted square.</p>
-      <p class="tiny">Tip: Online mode disables AI mode.</p>
+    <footer class="footer">
+      <div id="message" class="message"></div>
+      <div class="hint">Tap a piece → tap a highlighted square.</div>
+      <div class="tip">Tip: Online mode disables AI mode.</div>
     </footer>
   </div>
 
-  <script src="firebase.js"></script>
-  <script src="app.js"></script>
+  <!-- Firebase (Compat SDK) -->
+  <script src="https://www.gstatic.com/firebasejs/9.23.0/firebase-app-compat.js"></script>
+  <script src="https://www.gstatic.com/firebasejs/9.23.0/firebase-database-compat.js"></script>
 
-  <script>
-    // PWA offline
-    if ("serviceWorker" in navigator) {
-      navigator.serviceWorker.register("./sw.js");
-    }
-  </script>
+  <!-- Your Firebase config -->
+  <script src="firebase.js"></script>
+
+  <!-- Game logic -->
+  <script src="app.js"></script>
 </body>
 </html>
