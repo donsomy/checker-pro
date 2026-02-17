@@ -1,29 +1,16 @@
-# checker-pro
-checkera game app
-# Checkers Pro 🏁
+# Checkers Pro
 
-A modern Checkers game with:
+A clean Checkers game you can run on GitHub Pages.
 
-✅ 2 Player (same device)  
-✅ Hard AI (Minimax)  
-✅ Online Multiplayer (Firebase Realtime Database)  
-✅ Installable PWA (offline support)
-
----
+## Features
+- 2 Player (local)
+- AI mode (Hard minimax)
+- Online multiplayer (Firebase Realtime Database)
 
 ## Setup
-
-### 1) Clone / Download
-Put all files in one folder.
-
-### 2) Firebase Setup
-Create a Firebase project and enable **Realtime Database**.
-
-Then open `firebase.js` and paste your Firebase config.
-
----
-
-## Realtime Database Rules (for testing)
+1. Open `firebase.js`
+2. Paste your Firebase config values.
+3. In Firebase Realtime Database rules, allow read/write for testing:
 
 ```json
 {
@@ -32,3 +19,13 @@ Then open `firebase.js` and paste your Firebase config.
     ".write": true
   }
 }
+```
+
+## Run locally
+Just open `index.html` in your browser.
+
+## Deploy on GitHub Pages
+- Push to GitHub
+- Settings -> Pages -> Deploy from branch -> main -> /root
+- Open the link
+- 
