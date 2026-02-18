@@ -83,11 +83,11 @@ body{
 }
 
 .board{
-  width:min(640px, 92vw);
+  width:min(92vw, 560px);
   aspect-ratio:1/1;
   display:grid;
   grid-template-columns: repeat(8, 1fr);
-  border-radius:18px;
+  border-radius:14px;
   overflow:hidden;
   border:1px solid var(--line);
   background: rgba(0,0,0,.15);
