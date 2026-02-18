@@ -1,17 +1,15 @@
-// ---------------- DOM ----------------
-const boardEl = document.getElementById("board");
-const turnLabel = document.getElementById("turnLabel");
-const messageEl = document.getElementById("message");
-const restartBtn = document.getElementById("restartBtn");
-const modeBtn = document.getElementById("modeBtn");
+// ---------------- DOM Elements ----------------
+const boardEl        = document.getElementById("board");
+const turnLabel      = document.getElementById("turnLabel");
+const messageEl      = document.getElementById("message");
+const restartBtn     = document.getElementById("restartBtn");
+const modeBtn        = document.getElementById("modeBtn");
+const createRoomBtn  = document.getElementById("createRoomBtn");
+const joinRoomBtn    = document.getElementById("joinRoomBtn");
 
-const createRoomBtn = document.getElementById("createRoomBtn");
-const joinRoomBtn = document.getElementById("joinRoomBtn");
-
-// ---------------- Game Config ----------------
+// ---------------- Game Constants & State ----------------
 const SIZE = 8;
 
-// board[r][c] = null or { color: "red"|"black", king: boolean }
 let board = [];
 let turn = "red";
 let selected = null;
@@ -19,16 +17,16 @@ let legalMoves = [];
 let mustContinueChain = false;
 
 // Modes
-let mode = "2p"; // "2p" or "ai"
+let mode = "2p";           // "2p" or "ai"
 let aiColor = "black";
 let aiDifficulty = "hard"; // easy | medium | hard
 
-// Online multiplayer
+// Online
 let online = false;
 let roomId = null;
-let playerRole = null; // "red" or "black"
+let playerRole = null;     // "red" or "black"
 let roomRef = null;
-let onlineReady = false; // BOTH players joined?
+let onlineReady = false;
 
 // ---------------- Helpers ----------------
 
@@ -38,12 +36,10 @@ function setMessage(msg) {
 
 function updateTurnLabel() {
   const t = turn === "red" ? "Red" : "Black";
-
-  let m = "2 Player";
-  if (online) m = `Online (${playerRole || "?"})`;
-  else if (mode === "ai") m = `AI (${aiDifficulty})`;
-
-  turnLabel.textContent = `Turn: ${t} • Mode: ${m}`;
+  let m = "2 Player Local";
+  if (online)      m = `Online (${playerRole || "?"})`;
+  else if (mode === "ai") m = `vs AI (${aiDifficulty})`;
+  turnLabel.textContent = `Turn: ${t} • ${m}`;
 }
 
 function inBounds(r, c) {
@@ -55,40 +51,50 @@ function getDirections(piece) {
   return piece.color === "red" ? [-1] : [1];
 }
 
-// Firebase sometimes returns arrays as objects
-function normalizeBoard(b) {
-  if (!b) return null;
+// Normalize board from Firebase (handles array or object-with-string-keys)
+function normalizeBoard(raw) {
+  if (!raw) {
+    return Array.from({ length: SIZE }, () => Array(SIZE).fill(null));
+  }
 
-  // already correct
-  if (Array.isArray(b)) return b;
+  // Already a proper 2D array
+  if (Array.isArray(raw) && Array.isArray(raw[0])) {
+    return raw.map(row => row.map(cell => cell ? { ...cell } : null));
+  }
 
-  // object -> array
-  const arr = [];
+  // Firebase object style { "0": { "0": {...}, "1": ... }, "1": ... }
+  const board = Array.from({ length: SIZE }, () => Array(SIZE).fill(null));
+
   for (let r = 0; r < SIZE; r++) {
-    arr[r] = [];
+    const rowData = raw[r] ?? raw[String(r)] ?? {};
     for (let c = 0; c < SIZE; c++) {
-      arr[r][c] = b?.[r]?.[c] ?? null;
+      const cell = rowData[c] ?? rowData[String(c)];
+      board[r][c] = cell ? { ...cell } : null;
     }
   }
-  return arr;
+  return board;
 }
 
-// ---------------- Core ----------------
+function deepCopyBoard(b) {
+  return b.map(row => row.map(cell => cell ? { ...cell } : null));
+}
+
+// ---------------- Core Game Logic ----------------
 
 function initBoard() {
   board = Array.from({ length: SIZE }, () => Array(SIZE).fill(null));
 
-  // Black at top
+  // Black pieces – top (rows 0–2)
   for (let r = 0; r < 3; r++) {
-    for (let c = 0; c < SIZE; c++) {
-      if ((r + c) % 2 === 1) board[r][c] = { color: "black", king: false };
+    for (let c = (r % 2 === 0 ? 1 : 0); c < SIZE; c += 2) {
+      board[r][c] = { color: "black", king: false };
     }
   }
 
-  // Red at bottom
-  for (let r = 5; r < 8; r++) {
-    for (let c = 0; c < SIZE; c++) {
-      if ((r + c) % 2 === 1) board[r][c] = { color: "red", king: false };
+  // Red pieces – bottom (rows 5–7)
+  for (let r = 5; r < SIZE; r++) {
+    for (let c = (r % 2 === 0 ? 1 : 0); c < SIZE; c += 2) {
+      board[r][c] = { color: "red", king: false };
     }
   }
 
@@ -100,16 +106,15 @@ function initBoard() {
   updateTurnLabel();
   render();
 
-  // only AI if not online
-  maybeAIMove();
+  if (!online && mode === "ai") maybeAIMove();
 }
 
 function getMovesFrom(r, c, includeSimple = true) {
-  const p = board[r][c];
-  if (!p) return [];
+  const piece = board[r][c];
+  if (!piece) return [];
 
-  const dirs = getDirections(p);
-  const results = [];
+  const dirs = getDirections(piece);
+  const moves = [];
 
   for (const dr of dirs) {
     for (const dc of [-1, 1]) {
@@ -118,58 +123,49 @@ function getMovesFrom(r, c, includeSimple = true) {
       const r2 = r + dr * 2;
       const c2 = c + dc * 2;
 
-      // Simple move
-      if (includeSimple && inBounds(r1, c1) && board[r1][c1] === null) {
-        results.push({ to: { r: r1, c: c1 }, capture: null });
+      // Normal move
+      if (includeSimple && inBounds(r1, c1) && !board[r1][c1]) {
+        moves.push({ to: { r: r1, c: c1 }, capture: null });
       }
 
       // Capture
-      if (inBounds(r2, c2) && board[r2][c2] === null) {
-        if (
-          inBounds(r1, c1) &&
-          board[r1][c1] &&
-          board[r1][c1].color !== p.color
-        ) {
-          results.push({ to: { r: r2, c: c2 }, capture: { r: r1, c: c1 } });
-        }
+      if (inBounds(r2, c2) && !board[r2][c2] &&
+          inBounds(r1, c1) && board[r1][c1] &&
+          board[r1][c1].color !== piece.color) {
+        moves.push({ to: { r: r2, c: c2 }, capture: { r: r1, c: c1 } });
       }
     }
   }
 
-  return results;
+  return moves;
 }
 
 function getAllMovesFor(color) {
-  const movesByFrom = new Map();
-  let anyCapture = false;
-
-  // SAFETY: if color is undefined somehow, stop
   if (color !== "red" && color !== "black") {
-    return { hasCapture: false, movesByFrom };
+    return { hasCapture: false, movesByFrom: new Map() };
   }
+
+  const movesByFrom = new Map();
+  let hasCapture = false;
 
   for (let r = 0; r < SIZE; r++) {
     for (let c = 0; c < SIZE; c++) {
-      const p = board[r][c];
-      if (!p || p.color !== color) continue;
+      if (!board[r][c] || board[r][c].color !== color) continue;
 
       const moves = getMovesFrom(r, c, true);
-      if (moves.some((m) => m.capture)) anyCapture = true;
+      if (moves.some(m => m.capture)) hasCapture = true;
       movesByFrom.set(`${r},${c}`, moves);
     }
   }
 
-  // If any capture exists, force capture-only moves
-  if (anyCapture) {
-    for (const [k, moves] of movesByFrom.entries()) {
-      movesByFrom.set(
-        k,
-        moves.filter((m) => m.capture)
-      );
+  // Mandatory capture rule
+  if (hasCapture) {
+    for (const [key, moves] of movesByFrom) {
+      movesByFrom.set(key, moves.filter(m => m.capture));
     }
   }
 
-  return { hasCapture: anyCapture, movesByFrom };
+  return { hasCapture, movesByFrom };
 }
 
 function render() {
@@ -179,98 +175,97 @@ function render() {
 
   for (let r = 0; r < SIZE; r++) {
     for (let c = 0; c < SIZE; c++) {
-      const sq = document.createElement("div");
-      sq.className = "square " + ((r + c) % 2 === 0 ? "light" : "dark");
-      sq.dataset.r = r;
-      sq.dataset.c = c;
+      const square = document.createElement("div");
+      square.className = `square ${(r + c) % 2 === 0 ? "light" : "dark"}`;
+      square.dataset.r = r;
+      square.dataset.c = c;
 
-      // Move hints
+      // Highlight possible moves
       if (selected) {
-        const isTarget = legalMoves.some((m) => m.to.r === r && m.to.c === c);
+        const isTarget = legalMoves.some(m => m.to.r === r && m.to.c === c);
         if (isTarget) {
-          const move = legalMoves.find(
-            (m) => m.to.r === r && m.to.c === c
-          );
-          sq.classList.add(move.capture ? "captureHint" : "hint");
+          const move = legalMoves.find(m => m.to.r === r && m.to.c === c);
+          square.classList.add(move.capture ? "captureHint" : "hint");
         }
       }
 
-      const p = board[r][c];
-      if (p) {
-        const piece = document.createElement("div");
-        piece.className = `piece ${p.color}`;
-
-        if (selected && selected.r === r && selected.c === c) {
-          piece.classList.add("selected");
+      const piece = board[r][c];
+      if (piece) {
+        const el = document.createElement("div");
+        el.className = `piece ${piece.color}`;
+        if (selected?.r === r && selected?.c === c) {
+          el.classList.add("selected");
         }
-
-        if (p.king) {
+        if (piece.king) {
           const k = document.createElement("div");
           k.className = "king";
           k.textContent = "K";
-          piece.appendChild(k);
+          el.appendChild(k);
         }
 
-        // forced capture highlight
+        // Highlight pieces that can capture (when mandatory)
         if (!mustContinueChain && hasCapture) {
           const moves = movesByFrom.get(`${r},${c}`) || [];
-          if (p.color === turn && moves.some((m) => m.capture)) {
-            piece.style.boxShadow =
-              "0 0 0 3px rgba(255,183,3,0.65), 0 10px 18px rgba(0,0,0,0.35)";
+          if (moves.some(m => m.capture)) {
+            el.style.boxShadow = "0 0 0 3px rgba(255,183,3,0.7), 0 4px 12px rgba(0,0,0,0.4)";
           }
         }
 
-        sq.appendChild(piece);
+        square.appendChild(el);
       }
 
-      sq.addEventListener("click", onSquareClick);
-      boardEl.appendChild(sq);
+      square.addEventListener("click", onSquareClick);
+      boardEl.appendChild(square);
     }
   }
 }
 
+// ---------------- Input & Game Flow ----------------
+
 function onSquareClick(e) {
-  // Online: block until both players are ready
   if (online && !onlineReady) {
-    setMessage("Waiting for player...");
+    setMessage("Waiting for the other player...");
     return;
   }
-
-  // Online: block if not your turn
   if (online && playerRole !== turn) {
     setMessage("Not your turn.");
     return;
   }
-
-  // AI: block if AI turn
-  if (!online && mode === "ai" && turn === aiColor) return;
-
-  const r = Number(e.currentTarget.dataset.r);
-  const c = Number(e.currentTarget.dataset.c);
-  const p = board[r][c];
-
-  // Multi capture chain lock
-  if (mustContinueChain && selected) {
-    const move = legalMoves.find((m) => m.to.r === r && m.to.c === c);
-    if (move) applyMove(selected.r, selected.c, move);
-    else setMessage("You must continue capturing.");
+  if (!online && mode === "ai" && turn === aiColor) {
     return;
   }
 
-  // Select
-  if (p && p.color === turn) {
+  const r = Number(e.currentTarget.dataset.r);
+  const c = Number(e.currentTarget.dataset.c);
+  const piece = board[r][c];
+
+  // Continuing a multi-capture
+  if (mustContinueChain && selected) {
+    const move = legalMoves.find(m => m.to.r === r && m.to.c === c);
+    if (move) {
+      applyMove(selected.r, selected.c, move);
+    } else {
+      setMessage("You must continue capturing with this piece.");
+    }
+    return;
+  }
+
+  // Select own piece
+  if (piece && piece.color === turn) {
     selectPiece(r, c);
     return;
   }
 
-  // Move
+  // Try move
   if (selected) {
-    const move = legalMoves.find((m) => m.to.r === r && m.to.c === c);
-    if (move) applyMove(selected.r, selected.c, move);
-    else {
-      setMessage("");
+    const move = legalMoves.find(m => m.to.r === r && m.to.c === c);
+    if (move) {
+      applyMove(selected.r, selected.c, move);
+    } else {
+      // Clicked elsewhere → deselect
       selected = null;
       legalMoves = [];
+      setMessage("");
       render();
     }
   }
@@ -280,50 +275,48 @@ function selectPiece(r, c) {
   const { hasCapture, movesByFrom } = getAllMovesFor(turn);
   const moves = movesByFrom.get(`${r},${c}`) || [];
 
-  if (hasCapture && !moves.some((m) => m.capture)) {
-    setMessage("Capture is available — you must capture.");
+  if (hasCapture && !moves.some(m => m.capture)) {
+    setMessage("You must capture when possible.");
     return;
   }
 
   selected = { r, c };
   legalMoves = moves;
-  setMessage(moves.length ? "" : "No moves for this piece.");
+  setMessage(moves.length ? "" : "This piece has no legal moves.");
   render();
 }
 
-function applyMove(fr, fc, move) {
-  const piece = board[fr][fc];
-  board[fr][fc] = null;
+function applyMove(fromR, fromC, move) {
+  const piece = board[fromR][fromC];
+  board[fromR][fromC] = null;
+  board[move.to.r][move.to.c] = piece;
 
-  const tr = move.to.r;
-  const tc = move.to.c;
-  board[tr][tc] = piece;
-
-  // Capture
-  if (move.capture) board[move.capture.r][move.capture.c] = null;
-
-  // Promote
-  if (!piece.king) {
-    if (piece.color === "red" && tr === 0) piece.king = true;
-    if (piece.color === "black" && tr === SIZE - 1) piece.king = true;
+  if (move.capture) {
+    board[move.capture.r][move.capture.c] = null;
   }
 
-  // Multi jump
-  if (move.capture) {
-    const nextMoves = getMovesFrom(tr, tc, false).filter((m) => m.capture);
-    if (nextMoves.length) {
-      selected = { r: tr, c: tc };
-      legalMoves = nextMoves;
-      mustContinueChain = true;
-      setMessage("Multi-capture! Continue.");
-      render();
+  // King promotion
+  if (!piece.king) {
+    if (piece.color === "red"   && move.to.r === 0)        piece.king = true;
+    if (piece.color === "black" && move.to.r === SIZE - 1) piece.king = true;
+  }
 
-      // Online sync mid-chain
+  // Check for multi-capture
+  if (move.capture) {
+    const nextCaptures = getMovesFrom(move.to.r, move.to.c, false)
+      .filter(m => m.capture);
+    if (nextCaptures.length > 0) {
+      selected = { r: move.to.r, c: move.to.c };
+      legalMoves = nextCaptures;
+      mustContinueChain = true;
+      setMessage("Multi-capture — continue jumping.");
+      render();
       syncOnlineGame();
       return;
     }
   }
 
+  // End of turn
   mustContinueChain = false;
   selected = null;
   legalMoves = [];
@@ -331,7 +324,6 @@ function applyMove(fr, fc, move) {
   updateTurnLabel();
   setMessage("");
 
-  // Winner
   const winner = isGameOver(turn) ? (turn === "red" ? "Black" : "Red") : null;
   if (winner) setMessage(`${winner} wins!`);
 
@@ -340,20 +332,22 @@ function applyMove(fr, fc, move) {
   maybeAIMove();
 }
 
-function isGameOver(colorToPlay) {
-  let pieces = 0;
-
+function isGameOver(colorToCheck) {
+  let hasPieces = false;
   for (let r = 0; r < SIZE; r++) {
     for (let c = 0; c < SIZE; c++) {
-      const p = board[r][c];
-      if (p && p.color === colorToPlay) pieces++;
+      if (board[r][c]?.color === colorToCheck) {
+        hasPieces = true;
+        break;
+      }
     }
+    if (hasPieces) break;
   }
-  if (pieces === 0) return true;
+  if (!hasPieces) return true;
 
-  const { movesByFrom } = getAllMovesFor(colorToPlay);
+  const { movesByFrom } = getAllMovesFor(colorToCheck);
   for (const moves of movesByFrom.values()) {
-    if (moves.length) return false;
+    if (moves.length > 0) return false;
   }
   return true;
 }
@@ -365,8 +359,8 @@ function syncOnlineGame() {
 
   const winner = isGameOver(turn) ? (turn === "red" ? "Black" : "Red") : null;
 
-  db.ref("rooms/" + roomId + "/game").set({
-    board,
+  db.ref(`rooms/${roomId}/game`).set({
+    board: deepCopyBoard(board),
     turn,
     mustContinueChain,
     winner
@@ -374,65 +368,68 @@ function syncOnlineGame() {
 }
 
 function listenToRoom(id) {
-  roomRef = db.ref("rooms/" + id);
+  roomRef = db.ref(`rooms/${id}`);
 
-  roomRef.on("value", (snap) => {
+  roomRef.on("value", snap => {
     const data = snap.val();
     if (!data) return;
 
-    // detect player readiness
-    const redIn = !!data.players?.red;
-    const blackIn = !!data.players?.black;
-    onlineReady = redIn && blackIn;
+    const redJoined   = !!data.players?.red;
+    const blackJoined = !!data.players?.black;
+    onlineReady = redJoined && blackJoined;
 
     if (!onlineReady) {
-      setMessage("Waiting for player...");
-    }
-
-    // if game isn't ready, don't crash
-    if (!data.game || !data.game.board) {
-      updateTurnLabel();
+      setMessage("Waiting for second player...");
+      render();
       return;
     }
 
-    const fixedBoard = normalizeBoard(data.game.board);
-    if (!fixedBoard) return;
+    if (!data.game) {
+      updateTurnLabel();
+      render();
+      return;
+    }
 
-    board = fixedBoard;
+    board = normalizeBoard(data.game.board);
+
     turn = data.game.turn ?? "red";
-    mustContinueChain = data.game.mustContinueChain ?? false;
+    mustContinueChain = !!data.game.mustContinueChain;
 
+    // Reset local selection (important!)
     selected = null;
     legalMoves = [];
 
     updateTurnLabel();
 
-    if (data.game.winner) setMessage(data.game.winner + " wins!");
-    else if (!onlineReady) setMessage("Waiting for player...");
-    else setMessage("");
+    if (data.game.winner) {
+      setMessage(`${data.game.winner} wins!`);
+    } else {
+      setMessage("");
+    }
 
     render();
+
+    // AI can still play locally even in "online" view (for testing)
+    maybeAIMove();
   });
 }
 
+// ---------------- Online Buttons ----------------
+
 createRoomBtn.addEventListener("click", async () => {
-  // Online disables AI
   online = true;
   mode = "2p";
-  modeBtn.textContent = "Mode: 2 Player";
-
+  modeBtn.textContent = "Mode: Online";
   initBoard();
 
   roomId = Math.random().toString(36).slice(2, 8).toUpperCase();
   playerRole = "red";
 
-  const ref = db.ref("rooms/" + roomId);
-
-  await ref.set({
+  await db.ref(`rooms/${roomId}`).set({
     createdAt: Date.now(),
     players: { red: true, black: false },
     game: {
-      board,
+      board: deepCopyBoard(board),
       turn,
       mustContinueChain: false,
       winner: null
@@ -441,54 +438,54 @@ createRoomBtn.addEventListener("click", async () => {
 
   listenToRoom(roomId);
   updateTurnLabel();
-
-  alert("Room created! Code: " + roomId);
+  alert(`Room created!\nCode: ${roomId}`);
 });
 
 joinRoomBtn.addEventListener("click", async () => {
-  const code = prompt("Enter room code:");
+  const code = prompt("Enter room code:").trim().toUpperCase();
   if (!code) return;
 
   online = true;
   mode = "2p";
-  modeBtn.textContent = "Mode: 2 Player";
+  modeBtn.textContent = "Mode: Online";
 
-  roomId = code.trim().toUpperCase();
-  const ref = db.ref("rooms/" + roomId);
-
+  const ref = db.ref(`rooms/${code}`);
   const snap = await ref.get();
+
   if (!snap.exists()) {
     alert("Room not found.");
-    online = false;
-    roomId = null;
+    resetOnlineState();
     return;
   }
 
   const data = snap.val();
-
-  if (data.players?.black === false) {
-    playerRole = "black";
-    await ref.child("players/black").set(true);
-  } else {
+  if (data.players?.black !== false) {
     alert("Room is full.");
-    online = false;
-    roomId = null;
+    resetOnlineState();
     return;
   }
 
+  playerRole = "black";
+  await ref.child("players/black").set(true);
+
+  roomId = code;
   listenToRoom(roomId);
   updateTurnLabel();
 });
 
+function resetOnlineState() {
+  online = false;
+  roomId = null;
+  playerRole = null;
+  onlineReady = false;
+  if (roomRef) roomRef.off();
+}
+
 // ---------------- AI ----------------
 
 function maybeAIMove() {
-  if (online) return;
-  if (mode !== "ai") return;
-  if (turn !== aiColor) return;
-  if (isGameOver(turn)) return;
-
-  setTimeout(() => aiMakeMove(), 350);
+  if (online || mode !== "ai" || turn !== aiColor || isGameOver(turn)) return;
+  setTimeout(aiMakeMove, 400);
 }
 
 function aiMakeMove() {
@@ -504,23 +501,24 @@ function aiMakeMove() {
     chosen = pickHardMove(actions);
   }
 
-  applyMove(chosen.from.r, chosen.from.c, chosen.move);
+  if (chosen) applyMove(chosen.from.r, chosen.from.c, chosen.move);
 }
 
 function getAllActionsFor(color) {
   const { movesByFrom } = getAllMovesFor(color);
   const actions = [];
-
-  for (const [k, moves] of movesByFrom.entries()) {
-    const [r, c] = k.split(",").map(Number);
-    for (const m of moves) actions.push({ from: { r, c }, move: m });
+  for (const [key, moves] of movesByFrom) {
+    const [r, c] = key.split(",").map(Number);
+    for (const m of moves) {
+      actions.push({ from: { r, c }, move: m });
+    }
   }
   return actions;
 }
 
 function pickMediumMove(actions) {
   let best = null;
-  let bestScore = -999999;
+  let bestScore = -9999;
 
   for (const a of actions) {
     const score = scoreMove(a);
@@ -532,79 +530,69 @@ function pickMediumMove(actions) {
   return best || actions[Math.floor(Math.random() * actions.length)];
 }
 
-function scoreMove(action) {
-  const { from, move } = action;
-  const piece = board[from.r][from.c];
-  let score = 0;
-
-  if (move.capture) score += 50;
-
-  if (!piece.king) {
-    if (piece.color === "black" && move.to.r === SIZE - 1) score += 30;
-    if (piece.color === "red" && move.to.r === 0) score += 30;
+function scoreMove({ move }) {
+  let score = move.capture ? 50 : 0;
+  if (!board[move.to.r][move.to.c]?.king) {
+    if (move.to.r === 0 && turn === "red")   score += 35;
+    if (move.to.r === 7 && turn === "black") score += 35;
   }
-
   return score;
 }
 
-// -------- HARD AI (Minimax + alpha-beta) --------
+// ---------------- Hard AI (Minimax + Alpha-Beta) ----------------
 
 function pickHardMove(actions) {
   const depth = 5;
   let best = null;
   let bestScore = -Infinity;
 
-  for (const a of actions) {
-    const snapshot = deepCopy(board);
-
-    simulateMove(a.from, a.move);
+  for (const action of actions) {
+    const backup = deepCopyBoard(board);
+    simulateMove(action.from, action.move);
     const score = minimax(depth - 1, false, -Infinity, Infinity);
-
-    board = snapshot;
+    board = backup;
 
     if (score > bestScore) {
       bestScore = score;
-      best = a;
+      best = action;
     }
   }
 
-  return best || actions[Math.floor(Math.random() * actions.length)];
+  return best || actions[Math.floor(Math.random() * actions.length)] || null;
 }
 
 function minimax(depth, maximizing, alpha, beta) {
   if (depth === 0) return evaluateBoard(aiColor);
 
-  const current = maximizing ? aiColor : (aiColor === "red" ? "black" : "red");
-  const actions = getAllActionsFor(current);
+  const maximizingColor = maximizing ? aiColor : (aiColor === "red" ? "black" : "red");
+  const actions = getAllActionsFor(maximizingColor);
 
-  if (!actions.length) return maximizing ? -9999 : 9999;
+  if (!actions.length) {
+    return maximizing ? -10000 : 10000;
+  }
 
   if (maximizing) {
-    let best = -Infinity;
+    let value = -Infinity;
     for (const a of actions) {
-      const snapshot = deepCopy(board);
+      const backup = deepCopyBoard(board);
       simulateMove(a.from, a.move);
-      const score = minimax(depth - 1, false, alpha, beta);
-      board = snapshot;
-
-      best = Math.max(best, score);
-      alpha = Math.max(alpha, score);
+      value = Math.max(value, minimax(depth - 1, false, alpha, beta));
+      board = backup;
+      alpha = Math.max(alpha, value);
       if (beta <= alpha) break;
     }
-    return best;
+    return value;
   } else {
-    let best = Infinity;
+    let value = Infinity;
     for (const a of actions) {
-      const snapshot = deepCopy(board);
+      const backup = deepCopyBoard(board);
       simulateMove(a.from, a.move);
-      const score = minimax(depth - 1, true, alpha, beta);
-      board = snapshot;
-
-      best = Math.min(best, score);
-      beta = Math.min(beta, score);
+      value = Math.min(value, minimax(depth - 1, true, alpha, beta));
+      board = backup;
+      beta = Math.min(beta, value);
       if (beta <= alpha) break;
     }
-    return best;
+    return value;
   }
 }
 
@@ -613,61 +601,49 @@ function simulateMove(from, move) {
   board[from.r][from.c] = null;
   board[move.to.r][move.to.c] = piece;
 
-  if (move.capture) board[move.capture.r][move.capture.c] = null;
+  if (move.capture) {
+    board[move.capture.r][move.capture.c] = null;
+  }
 
   if (!piece.king) {
-    if (piece.color === "red" && move.to.r === 0) piece.king = true;
+    if (piece.color === "red"   && move.to.r === 0)        piece.king = true;
     if (piece.color === "black" && move.to.r === SIZE - 1) piece.king = true;
   }
 }
 
-function deepCopy(obj) {
-  return JSON.parse(JSON.stringify(obj));
-}
-
-function evaluateBoard(perspectiveColor) {
+function evaluateBoard(perspective) {
   let score = 0;
-
   for (let r = 0; r < SIZE; r++) {
     for (let c = 0; c < SIZE; c++) {
       const p = board[r][c];
       if (!p) continue;
 
       let val = p.king ? 5 : 3;
-
-      if (c >= 2 && c <= 5) val += 0.3;
+      if (c >= 2 && c <= 5) val += 0.4;
 
       if (!p.king) {
-        if (p.color === "black") val += r * 0.15;
-        if (p.color === "red") val += (7 - r) * 0.15;
+        if (p.color === "black") val += r * 0.12;
+        if (p.color === "red")   val += (SIZE - 1 - r) * 0.12;
       }
 
-      if (p.color === perspectiveColor) score += val;
-      else score -= val;
+      score += (p.color === perspective ? val : -val);
     }
   }
-
   return score;
 }
 
-// ---------------- UI ----------------
+// ---------------- UI Controls ----------------
 
 restartBtn.addEventListener("click", () => {
   initBoard();
-
   if (online && roomId) {
-    db.ref("rooms/" + roomId + "/game").set({
-      board,
-      turn,
-      mustContinueChain: false,
-      winner: null
-    });
+    syncOnlineGame();
   }
 });
 
 modeBtn.addEventListener("click", () => {
   if (online) {
-    alert("AI is disabled while playing online.");
+    alert("Cannot change mode during online play.");
     return;
   }
 
@@ -677,12 +653,4 @@ modeBtn.addEventListener("click", () => {
     modeBtn.textContent = "Mode: AI (Hard)";
   } else {
     mode = "2p";
-    modeBtn.textContent = "Mode: 2 Player";
-  }
-
-  updateTurnLabel();
-  initBoard();
-});
-
-// ---------------- Start ----------------
-initBoard();
+    modeBtn.textConten
