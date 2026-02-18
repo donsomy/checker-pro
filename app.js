@@ -9,31 +9,36 @@ const createRoomBtn = document.getElementById("createRoomBtn");
 const joinRoomBtn = document.getElementById("joinRoomBtn");
 
 // ---------------- Game Config ----------------
-const SIZE = 8;
+const SIZE = 10; // International draughts
 
 // board[r][c] = null or { color: "red"|"black", king: boolean }
 let board = [];
 let turn = "red";
+
+// selection + UI legal targets
 let selected = null;
 let legalMoves = [];
 let mustContinueChain = false;
 
+// --------- Max capture system ----------
+let forcedMaxCaptureCount = 0;
+let allowedFromKeys = new Set(); // pieces that are allowed to move this turn
+
 // Modes
 let mode = "2p"; // "2p" or "ai"
 let aiColor = "black";
-let aiDifficulty = "hard"; // easy | medium | hard
+let aiDifficulty = "hard";
 
 // Online multiplayer
 let online = false;
 let roomId = null;
 let playerRole = null; // "red" or "black"
 let roomRef = null;
-let onlineReady = false; // BOTH players joined?
+let onlineReady = false;
 
 // ---------------- Helpers ----------------
-
 function setMessage(msg) {
-  messageEl.textContent = msg || "";
+  messageEl.textContent = msg;
 }
 
 function updateTurnLabel() {
@@ -50,57 +55,26 @@ function inBounds(r, c) {
   return r >= 0 && r < SIZE && c >= 0 && c < SIZE;
 }
 
-function getDirections(piece) {
-  if (piece.king) return [-1, 1];
-  return piece.color === "red" ? [-1] : [1];
-}
+// Firebase sometimes returns arrays as objects
+function normalizeBoard(b) {
+  if (!b) return null;
+  if (Array.isArray(b)) return b;
 
-// ---- IMPORTANT: STRONG NORMALIZER (Fixes blank board) ----
-function normalizeBoard(raw) {
-  // Always return a full 8x8 array
-  const out = Array.from({ length: SIZE }, () => Array(SIZE).fill(null));
-
-  if (!raw) return out;
-
-  // Firebase may send: array, object, sparse object, etc.
+  const arr = [];
   for (let r = 0; r < SIZE; r++) {
+    arr[r] = [];
     for (let c = 0; c < SIZE; c++) {
-      let cell = null;
-
-      // array format
-      if (Array.isArray(raw)) {
-        cell = raw?.[r]?.[c] ?? null;
-      } else {
-        // object format
-        cell = raw?.[r]?.[c] ?? null;
-      }
-
-      // If it looks like a piece, keep it. Else null.
-      if (cell && typeof cell === "object" && (cell.color === "red" || cell.color === "black")) {
-        out[r][c] = {
-          color: cell.color,
-          king: !!cell.king
-        };
-      } else {
-        out[r][c] = null;
-      }
+      arr[r][c] = b?.[r]?.[c] ?? null;
     }
   }
-
-  return out;
+  return arr;
 }
 
-// Ensure board is safe
-function ensureBoardSafe() {
-  if (!Array.isArray(board)) board = [];
-  if (board.length !== SIZE) board = normalizeBoard(board);
-
-  for (let r = 0; r < SIZE; r++) {
-    if (!Array.isArray(board[r]) || board[r].length !== SIZE) {
-      board = normalizeBoard(board);
-      break;
-    }
-  }
+// Deep clone board
+function cloneBoard(b) {
+  return b.map(row =>
+    row.map(cell => (cell ? { color: cell.color, king: !!cell.king } : null))
+  );
 }
 
 // ---------------- Core ----------------
@@ -108,15 +82,16 @@ function ensureBoardSafe() {
 function initBoard() {
   board = Array.from({ length: SIZE }, () => Array(SIZE).fill(null));
 
-  // Black at top
-  for (let r = 0; r < 3; r++) {
+  // International draughts: 4 rows each = 20 pieces
+  // Black top rows 0-3
+  for (let r = 0; r < 4; r++) {
     for (let c = 0; c < SIZE; c++) {
       if ((r + c) % 2 === 1) board[r][c] = { color: "black", king: false };
     }
   }
 
-  // Red at bottom
-  for (let r = 5; r < 8; r++) {
+  // Red bottom rows 6-9
+  for (let r = SIZE - 4; r < SIZE; r++) {
     for (let c = 0; c < SIZE; c++) {
       if ((r + c) % 2 === 1) board[r][c] = { color: "red", king: false };
     }
@@ -127,42 +102,54 @@ function initBoard() {
   legalMoves = [];
   mustContinueChain = false;
 
-  ensureBoardSafe();
-  updateTurnLabel();
-  render();
+  forcedMaxCaptureCount = 0;
+  allowedFromKeys = new Set();
 
-  // only AI if not online
-  maybeAIMove();
+  updateTurnLabel();
+  setMessage("");
+  recomputeTurnRestrictions();
+  render();
 }
 
-function getMovesFrom(r, c, includeSimple = true) {
-  const p = board[r][c];
+// ---------------- MOVE GENERATION ----------------
+
+// Men move forward, capture forward+backward (international).
+function getManMovesFromBoard(b, r, c, includeSimple = true) {
+  const p = b[r][c];
   if (!p) return [];
 
-  const dirs = getDirections(p);
   const results = [];
 
-  for (const dr of dirs) {
+  // Simple: forward only
+  const forwardDirs = p.color === "red" ? [-1] : [1];
+
+  // Capture: both directions
+  const captureDirs = [-1, 1];
+
+  if (includeSimple) {
+    for (const dr of forwardDirs) {
+      for (const dc of [-1, 1]) {
+        const r1 = r + dr;
+        const c1 = c + dc;
+        if (inBounds(r1, c1) && b[r1][c1] === null) {
+          results.push({ to: { r: r1, c: c1 }, capture: null });
+        }
+      }
+    }
+  }
+
+  for (const dr of captureDirs) {
     for (const dc of [-1, 1]) {
       const r1 = r + dr;
       const c1 = c + dc;
       const r2 = r + dr * 2;
       const c2 = c + dc * 2;
 
-      // Simple move
-      if (includeSimple && inBounds(r1, c1) && board[r1][c1] === null) {
-        results.push({ to: { r: r1, c: c1 }, capture: null });
-      }
+      if (!inBounds(r2, c2)) continue;
+      if (b[r2][c2] !== null) continue;
 
-      // Capture
-      if (inBounds(r2, c2) && board[r2][c2] === null) {
-        if (
-          inBounds(r1, c1) &&
-          board[r1][c1] &&
-          board[r1][c1].color !== p.color
-        ) {
-          results.push({ to: { r: r2, c: c2 }, capture: { r: r1, c: c1 } });
-        }
+      if (inBounds(r1, c1) && b[r1][c1] && b[r1][c1].color !== p.color) {
+        results.push({ to: { r: r2, c: c2 }, capture: { r: r1, c: c1 } });
       }
     }
   }
@@ -170,54 +157,207 @@ function getMovesFrom(r, c, includeSimple = true) {
   return results;
 }
 
-function getAllMovesFor(color) {
-  ensureBoardSafe();
+// Flying king: move any distance. Capture long-range.
+function getKingMovesFromBoard(b, r, c, includeSimple = true) {
+  const p = b[r][c];
+  if (!p) return [];
 
-  const movesByFrom = new Map();
-  let anyCapture = false;
+  const results = [];
+  const dirs = [
+    [-1, -1],
+    [-1, 1],
+    [1, -1],
+    [1, 1]
+  ];
 
-  if (color !== "red" && color !== "black") {
-    return { hasCapture: false, movesByFrom };
+  for (const [dr, dc] of dirs) {
+    // SIMPLE slides
+    if (includeSimple) {
+      let rr = r + dr;
+      let cc = c + dc;
+      while (inBounds(rr, cc) && b[rr][cc] === null) {
+        results.push({ to: { r: rr, c: cc }, capture: null });
+        rr += dr;
+        cc += dc;
+      }
+    }
+
+    // CAPTURE scan
+    let rr = r + dr;
+    let cc = c + dc;
+
+    let foundEnemy = null;
+
+    while (inBounds(rr, cc)) {
+      const sq = b[rr][cc];
+
+      if (sq === null) {
+        rr += dr;
+        cc += dc;
+        continue;
+      }
+
+      // Friendly blocks
+      if (sq.color === p.color) break;
+
+      // First enemy
+      foundEnemy = { r: rr, c: cc };
+      rr += dr;
+      cc += dc;
+      break;
+    }
+
+    if (!foundEnemy) continue;
+
+    // Landing squares after enemy
+    while (inBounds(rr, cc) && b[rr][cc] === null) {
+      results.push({ to: { r: rr, c: cc }, capture: foundEnemy });
+      rr += dr;
+      cc += dc;
+    }
   }
 
+  return results;
+}
+
+function getMovesFromBoard(b, r, c, includeSimple = true) {
+  const p = b[r][c];
+  if (!p) return [];
+  return p.king
+    ? getKingMovesFromBoard(b, r, c, includeSimple)
+    : getManMovesFromBoard(b, r, c, includeSimple);
+}
+
+// ---------------- APPLY MOVE ON BOARD (SIMULATION) ----------------
+function applyMoveOnBoard(b, fr, fc, move) {
+  const piece = b[fr][fc];
+  b[fr][fc] = null;
+
+  const tr = move.to.r;
+  const tc = move.to.c;
+
+  b[tr][tc] = piece;
+
+  if (move.capture) {
+    b[move.capture.r][move.capture.c] = null;
+  }
+
+  // promotion
+  if (!piece.king) {
+    if (piece.color === "red" && tr === 0) piece.king = true;
+    if (piece.color === "black" && tr === SIZE - 1) piece.king = true;
+  }
+
+  return { tr, tc };
+}
+
+// ---------------- MAX CAPTURE SEARCH ----------------
+//
+// Returns max number of captures possible from this piece if it starts capturing now.
+// It explores all capture sequences (men and kings).
+//
+function maxCapturesFrom(b, r, c) {
+  const p = b[r][c];
+  if (!p) return 0;
+
+  const captureMoves = getMovesFromBoard(b, r, c, false).filter(m => m.capture);
+  if (!captureMoves.length) return 0;
+
+  let best = 0;
+
+  for (const mv of captureMoves) {
+    const nb = cloneBoard(b);
+    const { tr, tc } = applyMoveOnBoard(nb, r, c, mv);
+
+    // Continue from new square
+    const further = maxCapturesFrom(nb, tr, tc);
+    best = Math.max(best, 1 + further);
+  }
+
+  return best;
+}
+
+// Compute forced rules for the current player:
+// - if any capture exists, force capture
+// - max capture rule: only pieces with the maximum capture chain are allowed
+function recomputeTurnRestrictions() {
+  allowedFromKeys = new Set();
+  forcedMaxCaptureCount = 0;
+
+  // find if any capture exists and the max chain length
   for (let r = 0; r < SIZE; r++) {
     for (let c = 0; c < SIZE; c++) {
       const p = board[r][c];
-      if (!p || p.color !== color) continue;
+      if (!p || p.color !== turn) continue;
 
-      const moves = getMovesFrom(r, c, true);
-      if (moves.some((m) => m.capture)) anyCapture = true;
-      movesByFrom.set(`${r},${c}`, moves);
+      const captures = getMovesFromBoard(board, r, c, false).filter(m => m.capture);
+      if (!captures.length) continue;
+
+      const m = maxCapturesFrom(board, r, c);
+      forcedMaxCaptureCount = Math.max(forcedMaxCaptureCount, m);
     }
   }
 
-  if (anyCapture) {
-    for (const [k, moves] of movesByFrom.entries()) {
-      movesByFrom.set(k, moves.filter((m) => m.capture));
+  // If no capture at all, everything allowed
+  if (forcedMaxCaptureCount === 0) return;
+
+  // Otherwise only pieces with that max are allowed
+  for (let r = 0; r < SIZE; r++) {
+    for (let c = 0; c < SIZE; c++) {
+      const p = board[r][c];
+      if (!p || p.color !== turn) continue;
+
+      const captures = getMovesFromBoard(board, r, c, false).filter(m => m.capture);
+      if (!captures.length) continue;
+
+      const m = maxCapturesFrom(board, r, c);
+      if (m === forcedMaxCaptureCount) allowedFromKeys.add(`${r},${c}`);
     }
   }
-
-  return { hasCapture: anyCapture, movesByFrom };
 }
 
+// ---------------- MOVE SET FOR A SELECTED PIECE ----------------
+function getLegalMovesForSelected(r, c) {
+  const p = board[r][c];
+  if (!p) return [];
+
+  // chain capture lock
+  if (mustContinueChain) {
+    // only capture moves allowed
+    return getMovesFromBoard(board, r, c, false).filter(m => m.capture);
+  }
+
+  // If max-capture is active, only those pieces can be selected
+  if (forcedMaxCaptureCount > 0) {
+    if (!allowedFromKeys.has(`${r},${c}`)) return [];
+    // only capture moves
+    return getMovesFromBoard(board, r, c, false).filter(m => m.capture);
+  }
+
+  // no forced capture: allow simple + capture
+  return getMovesFromBoard(board, r, c, true);
+}
+
+// ---------------- RENDER ----------------
 function render() {
-  ensureBoardSafe();
   boardEl.innerHTML = "";
 
-  const { hasCapture, movesByFrom } = getAllMovesFor(turn);
+  // make grid 10×10
+  boardEl.style.gridTemplateColumns = `repeat(${SIZE}, 1fr)`;
+  boardEl.style.gridTemplateRows = `repeat(${SIZE}, 1fr)`;
 
   for (let r = 0; r < SIZE; r++) {
     for (let c = 0; c < SIZE; c++) {
       const sq = document.createElement("div");
-      sq.className = "square " + ((r + c) % 2 === 0 ? "light" : "dark");
+      sq.className = "square " + (((r + c) % 2 === 0) ? "light" : "dark");
       sq.dataset.r = r;
       sq.dataset.c = c;
 
-      // Move hints
+      // move hint highlight
       if (selected) {
-        const isTarget = legalMoves.some((m) => m.to.r === r && m.to.c === c);
+        const isTarget = legalMoves.some(m => m.to.r === r && m.to.c === c);
         if (isTarget) {
-          const move = legalMoves.find((m) => m.to.r === r && m.to.c === c);
+          const move = legalMoves.find(m => m.to.r === r && m.to.c === c);
           sq.classList.add(move.capture ? "captureHint" : "hint");
         }
       }
@@ -238,12 +378,11 @@ function render() {
           piece.appendChild(k);
         }
 
-        // forced capture highlight
-        if (!mustContinueChain && hasCapture) {
-          const moves = movesByFrom.get(`${r},${c}`) || [];
-          if (p.color === turn && moves.some((m) => m.capture)) {
+        // highlight allowed max-capture pieces
+        if (!mustContinueChain && forcedMaxCaptureCount > 0) {
+          if (p.color === turn && allowedFromKeys.has(`${r},${c}`)) {
             piece.style.boxShadow =
-              "0 0 0 3px rgba(255,183,3,0.65), 0 10px 18px rgba(0,0,0,0.35)";
+              "0 0 0 3px rgba(255,183,3,0.70), 0 10px 18px rgba(0,0,0,0.35)";
           }
         }
 
@@ -256,8 +395,9 @@ function render() {
   }
 }
 
+// ---------------- INPUT ----------------
 function onSquareClick(e) {
-  // Online: block until both players are ready
+  // Online: block until both players ready
   if (online && !onlineReady) {
     setMessage("Waiting for player...");
     return;
@@ -276,23 +416,23 @@ function onSquareClick(e) {
   const c = Number(e.currentTarget.dataset.c);
   const p = board[r][c];
 
-  // Multi capture chain lock
+  // chain lock: must move same piece
   if (mustContinueChain && selected) {
-    const move = legalMoves.find((m) => m.to.r === r && m.to.c === c);
+    const move = legalMoves.find(m => m.to.r === r && m.to.c === c);
     if (move) applyMove(selected.r, selected.c, move);
     else setMessage("You must continue capturing.");
     return;
   }
 
-  // Select
+  // select piece
   if (p && p.color === turn) {
     selectPiece(r, c);
     return;
   }
 
-  // Move
+  // attempt move
   if (selected) {
-    const move = legalMoves.find((m) => m.to.r === r && m.to.c === c);
+    const move = legalMoves.find(m => m.to.r === r && m.to.c === c);
     if (move) applyMove(selected.r, selected.c, move);
     else {
       setMessage("");
@@ -304,30 +444,39 @@ function onSquareClick(e) {
 }
 
 function selectPiece(r, c) {
-  const { hasCapture, movesByFrom } = getAllMovesFor(turn);
-  const moves = movesByFrom.get(`${r},${c}`) || [];
+  const p = board[r][c];
+  if (!p || p.color !== turn) return;
 
-  if (hasCapture && !moves.some((m) => m.capture)) {
-    setMessage("Capture is available — you must capture.");
+  // If max-capture active, block wrong piece
+  if (!mustContinueChain && forcedMaxCaptureCount > 0 && !allowedFromKeys.has(`${r},${c}`)) {
+    setMessage(`You must capture the maximum (${forcedMaxCaptureCount}).`);
+    return;
+  }
+
+  const moves = getLegalMovesForSelected(r, c);
+
+  if (!moves.length) {
+    setMessage(forcedMaxCaptureCount > 0 ? "This piece is not allowed (max capture rule)." : "No moves.");
     return;
   }
 
   selected = { r, c };
   legalMoves = moves;
-  setMessage(moves.length ? "" : "No moves for this piece.");
+
+  if (forcedMaxCaptureCount > 0) setMessage(`Forced capture: take maximum (${forcedMaxCaptureCount}).`);
+  else setMessage("");
+
   render();
 }
 
+// ---------------- APPLY MOVE (REAL GAME) ----------------
 function applyMove(fr, fc, move) {
-  ensureBoardSafe();
-
   const piece = board[fr][fc];
-  if (!piece) return;
-
   board[fr][fc] = null;
 
   const tr = move.to.r;
   const tc = move.to.c;
+
   board[tr][tc] = piece;
 
   // Capture
@@ -339,12 +488,13 @@ function applyMove(fr, fc, move) {
     if (piece.color === "black" && tr === SIZE - 1) piece.king = true;
   }
 
-  // Multi jump
+  // If capture, check for continued captures
   if (move.capture) {
-    const nextMoves = getMovesFrom(tr, tc, false).filter((m) => m.capture);
-    if (nextMoves.length) {
+    const nextCaptures = getMovesFromBoard(board, tr, tc, false).filter(m => m.capture);
+
+    if (nextCaptures.length) {
       selected = { r: tr, c: tc };
-      legalMoves = nextMoves;
+      legalMoves = nextCaptures;
       mustContinueChain = true;
       setMessage("Multi-capture! Continue.");
       render();
@@ -353,56 +503,63 @@ function applyMove(fr, fc, move) {
     }
   }
 
+  // End turn
   mustContinueChain = false;
   selected = null;
   legalMoves = [];
+
   turn = turn === "red" ? "black" : "red";
   updateTurnLabel();
-  setMessage("");
 
-  const winner = isGameOver(turn) ? (turn === "red" ? "Black" : "Red") : null;
+  // recompute max capture for new turn
+  recomputeTurnRestrictions();
+
+  const winner = getWinnerIfAny();
   if (winner) setMessage(`${winner} wins!`);
+  else setMessage("");
 
   render();
   syncOnlineGame();
   maybeAIMove();
 }
 
-function isGameOver(colorToPlay) {
-  ensureBoardSafe();
-
+function getWinnerIfAny() {
+  // if player to play has no pieces or no moves, other wins
   let pieces = 0;
 
   for (let r = 0; r < SIZE; r++) {
     for (let c = 0; c < SIZE; c++) {
       const p = board[r][c];
-      if (p && p.color === colorToPlay) pieces++;
+      if (p && p.color === turn) pieces++;
+    }
+  }
+  if (pieces === 0) return turn === "red" ? "Black" : "Red";
+
+  // check moves exist
+  for (let r = 0; r < SIZE; r++) {
+    for (let c = 0; c < SIZE; c++) {
+      const p = board[r][c];
+      if (!p || p.color !== turn) continue;
+
+      const moves = getLegalMovesForSelected(r, c);
+      if (moves.length) return null;
     }
   }
 
-  if (pieces === 0) return true;
-
-  const { movesByFrom } = getAllMovesFor(colorToPlay);
-  for (const moves of movesByFrom.values()) {
-    if (moves.length) return false;
-  }
-
-  return true;
+  return turn === "red" ? "Black" : "Red";
 }
 
 // ---------------- Online Multiplayer ----------------
-
 function syncOnlineGame() {
   if (!online || !roomId) return;
 
-  ensureBoardSafe();
-
-  const winner = isGameOver(turn) ? (turn === "red" ? "Black" : "Red") : null;
+  const winner = getWinnerIfAny();
 
   db.ref("rooms/" + roomId + "/game").set({
     board,
     turn,
     mustContinueChain,
+    forcedMaxCaptureCount,
     winner
   });
 }
@@ -414,43 +571,41 @@ function listenToRoom(id) {
     const data = snap.val();
     if (!data) return;
 
-    // detect player readiness
     const redIn = !!data.players?.red;
     const blackIn = !!data.players?.black;
     onlineReady = redIn && blackIn;
 
-    // If game doesn't exist yet, show waiting
-    if (!data.game) {
+    if (!onlineReady) setMessage("Waiting for player...");
+
+    if (!data.game || !data.game.board) {
       updateTurnLabel();
-      setMessage("Waiting for game...");
       return;
     }
 
-    // Fix board safely
-    board = normalizeBoard(data.game.board);
-    turn = data.game.turn === "black" ? "black" : "red";
-    mustContinueChain = !!data.game.mustContinueChain;
+    const fixedBoard = normalizeBoard(data.game.board);
+    if (!fixedBoard) return;
+
+    board = fixedBoard;
+    turn = data.game.turn ?? "red";
+    mustContinueChain = data.game.mustContinueChain ?? false;
 
     selected = null;
     legalMoves = [];
 
+    // recompute restrictions locally (don't trust network)
+    recomputeTurnRestrictions();
+
     updateTurnLabel();
 
-    if (data.game.winner) {
-      setMessage(data.game.winner + " wins!");
-    } else if (!onlineReady) {
-      setMessage("Waiting for player...");
-    } else if (playerRole !== turn) {
-      setMessage("Opponent's turn...");
-    } else {
-      setMessage("");
-    }
+    if (data.game.winner) setMessage(data.game.winner + " wins!");
+    else if (!onlineReady) setMessage("Waiting for player...");
+    else if (forcedMaxCaptureCount > 0) setMessage(`Forced capture: take maximum (${forcedMaxCaptureCount}).`);
+    else setMessage("");
 
     render();
   });
 }
 
-// Create Room
 createRoomBtn.addEventListener("click", async () => {
   online = true;
   mode = "2p";
@@ -471,18 +626,16 @@ createRoomBtn.addEventListener("click", async () => {
       board,
       turn,
       mustContinueChain: false,
+      forcedMaxCaptureCount,
       winner: null
     }
   });
 
   listenToRoom(roomId);
   updateTurnLabel();
-
-  setMessage("Waiting for player...");
   alert("Room created! Code: " + roomId);
 });
 
-// Join Room
 joinRoomBtn.addEventListener("click", async () => {
   const code = prompt("Enter room code:");
   if (!code) return;
@@ -516,181 +669,50 @@ joinRoomBtn.addEventListener("click", async () => {
 
   listenToRoom(roomId);
   updateTurnLabel();
-  setMessage("");
 });
 
-// ---------------- AI ----------------
-
+// ---------------- AI (DISABLED ONLINE) ----------------
 function maybeAIMove() {
   if (online) return;
   if (mode !== "ai") return;
   if (turn !== aiColor) return;
-  if (isGameOver(turn)) return;
+  if (getWinnerIfAny()) return;
 
   setTimeout(() => aiMakeMove(), 350);
 }
 
+// Very simple AI (still works on 10×10)
 function aiMakeMove() {
   const actions = getAllActionsFor(aiColor);
   if (!actions.length) return;
 
-  let chosen;
-  if (aiDifficulty === "easy") {
-    chosen = actions[Math.floor(Math.random() * actions.length)];
-  } else if (aiDifficulty === "medium") {
-    chosen = pickMediumMove(actions);
-  } else {
-    chosen = pickHardMove(actions);
-  }
+  // prefer captures
+  const caps = actions.filter(a => a.move.capture);
+  const pool = caps.length ? caps : actions;
 
+  const chosen = pool[Math.floor(Math.random() * pool.length)];
   applyMove(chosen.from.r, chosen.from.c, chosen.move);
 }
 
 function getAllActionsFor(color) {
-  const { movesByFrom } = getAllMovesFor(color);
   const actions = [];
 
-  for (const [k, moves] of movesByFrom.entries()) {
-    const [r, c] = k.split(",").map(Number);
-    for (const m of moves) actions.push({ from: { r, c }, move: m });
-  }
-  return actions;
-}
-
-function pickMediumMove(actions) {
-  let best = null;
-  let bestScore = -999999;
-
-  for (const a of actions) {
-    const score = scoreMove(a);
-    if (score > bestScore) {
-      bestScore = score;
-      best = a;
-    }
-  }
-  return best || actions[Math.floor(Math.random() * actions.length)];
-}
-
-function scoreMove(action) {
-  const { from, move } = action;
-  const piece = board[from.r][from.c];
-  let score = 0;
-
-  if (move.capture) score += 50;
-
-  if (!piece.king) {
-    if (piece.color === "black" && move.to.r === SIZE - 1) score += 30;
-    if (piece.color === "red" && move.to.r === 0) score += 30;
-  }
-
-  return score;
-}
-
-// -------- HARD AI (Minimax + alpha-beta) --------
-
-function pickHardMove(actions) {
-  const depth = 5;
-  let best = null;
-  let bestScore = -Infinity;
-
-  for (const a of actions) {
-    const snapshot = deepCopy(board);
-
-    simulateMove(a.from, a.move);
-    const score = minimax(depth - 1, false, -Infinity, Infinity);
-
-    board = snapshot;
-
-    if (score > bestScore) {
-      bestScore = score;
-      best = a;
-    }
-  }
-
-  return best || actions[Math.floor(Math.random() * actions.length)];
-}
-
-function minimax(depth, maximizing, alpha, beta) {
-  if (depth === 0) return evaluateBoard(aiColor);
-
-  const current = maximizing ? aiColor : (aiColor === "red" ? "black" : "red");
-  const actions = getAllActionsFor(current);
-
-  if (!actions.length) return maximizing ? -9999 : 9999;
-
-  if (maximizing) {
-    let best = -Infinity;
-    for (const a of actions) {
-      const snapshot = deepCopy(board);
-      simulateMove(a.from, a.move);
-      const score = minimax(depth - 1, false, alpha, beta);
-      board = snapshot;
-
-      best = Math.max(best, score);
-      alpha = Math.max(alpha, score);
-      if (beta <= alpha) break;
-    }
-    return best;
-  } else {
-    let best = Infinity;
-    for (const a of actions) {
-      const snapshot = deepCopy(board);
-      simulateMove(a.from, a.move);
-      const score = minimax(depth - 1, true, alpha, beta);
-      board = snapshot;
-
-      best = Math.min(best, score);
-      beta = Math.min(beta, score);
-      if (beta <= alpha) break;
-    }
-    return best;
-  }
-}
-
-function simulateMove(from, move) {
-  const piece = board[from.r][from.c];
-  board[from.r][from.c] = null;
-  board[move.to.r][move.to.c] = piece;
-
-  if (move.capture) board[move.capture.r][move.capture.c] = null;
-
-  if (!piece.king) {
-    if (piece.color === "red" && move.to.r === 0) piece.king = true;
-    if (piece.color === "black" && move.to.r === SIZE - 1) piece.king = true;
-  }
-}
-
-function deepCopy(obj) {
-  return JSON.parse(JSON.stringify(obj));
-}
-
-function evaluateBoard(perspectiveColor) {
-  let score = 0;
+  // recompute restrictions for AI turn
+  recomputeTurnRestrictions();
 
   for (let r = 0; r < SIZE; r++) {
     for (let c = 0; c < SIZE; c++) {
       const p = board[r][c];
-      if (!p) continue;
+      if (!p || p.color !== color) continue;
 
-      let val = p.king ? 5 : 3;
-
-      if (c >= 2 && c <= 5) val += 0.3;
-
-      if (!p.king) {
-        if (p.color === "black") val += r * 0.15;
-        if (p.color === "red") val += (7 - r) * 0.15;
-      }
-
-      if (p.color === perspectiveColor) score += val;
-      else score -= val;
+      const moves = getLegalMovesForSelected(r, c);
+      for (const m of moves) actions.push({ from: { r, c }, move: m });
     }
   }
-
-  return score;
+  return actions;
 }
 
 // ---------------- UI ----------------
-
 restartBtn.addEventListener("click", () => {
   initBoard();
 
@@ -699,6 +721,7 @@ restartBtn.addEventListener("click", () => {
       board,
       turn,
       mustContinueChain: false,
+      forcedMaxCaptureCount,
       winner: null
     });
   }
@@ -712,8 +735,7 @@ modeBtn.addEventListener("click", () => {
 
   if (mode === "2p") {
     mode = "ai";
-    aiDifficulty = "hard";
-    modeBtn.textContent = "Mode: AI (Hard)";
+    modeBtn.textContent = "Mode: AI";
   } else {
     mode = "2p";
     modeBtn.textContent = "Mode: 2 Player";
