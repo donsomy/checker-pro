@@ -805,4 +805,209 @@ function aiMakeMove(){
   const moves = getMovesForColorOnBoard(board, color, mustChain);
   if(!moves.length) return;
 
-  //
+  // minimax with alpha-beta
+  function minimax(b, turnColor, d, alpha, beta, chainPiece=null){
+    const winner = winnerOnBoard(b);
+    if(winner){
+      // big scores
+      if(winner===RED) return 99999;
+      return -99999;
+    }
+    if(d===0){
+      return evaluateBoard(b);
+    }
+
+    const movesHere = getMovesForColorOnBoard(b, turnColor, chainPiece);
+    if(!movesHere.length){
+      // no moves = lose
+      if(turnColor===RED) return -99999;
+      return 99999;
+    }
+
+    const maximizing = (turnColor===RED);
+
+    if(maximizing){
+      let best=-Infinity;
+      for(const m of movesHere){
+        const nb = applyMoveOnBoard(b,m);
+
+        // if capture, check chain for same piece
+        let nextChain=null;
+        if(m.captures && m.captures.length){
+          const caps = getMovesForColorOnBoard(nb, turnColor, {r:m.to.r, c:m.to.c});
+          if(caps.length) nextChain = {r:m.to.r, c:m.to.c};
+        }
+
+        const nextTurn = nextChain ? turnColor : (turnColor===RED?BLACK:RED);
+        const score = minimax(nb, nextTurn, d-1, alpha, beta, nextChain);
+
+        best = Math.max(best, score);
+        alpha = Math.max(alpha, best);
+        if(beta<=alpha) break;
+      }
+      return best;
+    }else{
+      let best=Infinity;
+      for(const m of movesHere){
+        const nb = applyMoveOnBoard(b,m);
+
+        let nextChain=null;
+        if(m.captures && m.captures.length){
+          const caps = getMovesForColorOnBoard(nb, turnColor, {r:m.to.r, c:m.to.c});
+          if(caps.length) nextChain = {r:m.to.r, c:m.to.c};
+        }
+
+        const nextTurn = nextChain ? turnColor : (turnColor===RED?BLACK:RED);
+        const score = minimax(nb, nextTurn, d-1, alpha, beta, nextChain);
+
+        best = Math.min(best, score);
+        beta = Math.min(beta, best);
+        if(beta<=alpha) break;
+      }
+      return best;
+    }
+  }
+
+  function winnerOnBoard(b){
+    let r=0, bl=0;
+    for(let i=0;i<BOARD_SIZE;i++){
+      for(let j=0;j<BOARD_SIZE;j++){
+        const p=b[i][j];
+        if(p===1||p===3) r++;
+        else if(p===2||p===4) bl++;
+      }
+    }
+    if(r===0) return BLACK;
+    if(bl===0) return RED;
+
+    const rm = getMovesForColorOnBoard(b, RED, null).length;
+    const bm = getMovesForColorOnBoard(b, BLACK, null).length;
+    if(rm===0) return BLACK;
+    if(bm===0) return RED;
+    return null;
+  }
+
+  let bestMove = null;
+  let bestScore = (color===RED) ? -Infinity : Infinity;
+
+  // Legendary: add small randomness only if equal
+  const noise = (aiDifficultyEl.value==="legendary") ? 0.03 : 0.0;
+
+  for(const m of moves){
+    const nb = applyMoveOnBoard(board, m);
+
+    let nextChain=null;
+    if(m.captures && m.captures.length){
+      const caps = getMovesForColorOnBoard(nb, color, {r:m.to.r, c:m.to.c});
+      if(caps.length) nextChain = {r:m.to.r, c:m.to.c};
+    }
+
+    const nextTurn = nextChain ? color : (color===RED?BLACK:RED);
+    const score = minimax(nb, nextTurn, depth-1, -Infinity, Infinity, nextChain) + (Math.random()*noise);
+
+    if(color===RED){
+      if(score>bestScore){ bestScore=score; bestMove=m; }
+    }else{
+      if(score<bestScore){ bestScore=score; bestMove=m; }
+    }
+  }
+
+  if(!bestMove) bestMove = moves[Math.floor(Math.random()*moves.length)];
+
+  // Apply to real board
+  const didCapture = applyMove(bestMove, true);
+
+  if(didCapture){
+    const nextCaps = getCaptureMovesForChainAt(bestMove.to.r, bestMove.to.c);
+    if(nextCaps.length){
+      // AI continues chain (this is where your old AI got stuck)
+      mustContinueChain = {r:bestMove.to.r, c:bestMove.to.c};
+      selected = {r:bestMove.to.r, c:bestMove.to.c};
+      legalMoves = nextCaps;
+      render();
+      // continue
+      setTimeout(()=> aiMakeMove(), 220);
+      return;
+    }
+  }
+
+  mustContinueChain = null;
+  selected = null;
+  legalMoves = [];
+  turn = (turn===RED) ? BLACK : RED;
+
+  const winner = checkWinner();
+  if(winner){
+    setMessage(`${winner.toUpperCase()} wins!`);
+    playSfx(sfxWin);
+  }else{
+    setMessage("");
+  }
+
+  render();
+}
+
+// ---------- Buttons ----------
+restartBtn.addEventListener("click", ()=>{
+  if(online){
+    if(!roomId) return;
+    initBoard();
+    pushGameState();
+    return;
+  }
+  initBoard();
+  render();
+
+  if(mode==="ai" && turn===aiSide){
+    setTimeout(()=> aiMakeMove(), 250);
+  }
+});
+
+modeBtn.addEventListener("click", ()=>{
+  if(online){
+    alert("Online mode disables AI mode.");
+    return;
+  }
+  mode = (mode==="2p") ? "ai" : "2p";
+  modeBtn.textContent = (mode==="ai") ? "Mode: AI" : "Mode: 2 Player";
+  setMessage("");
+  render();
+
+  if(mode==="ai" && turn===aiSide){
+    setTimeout(()=> aiMakeMove(), 250);
+  }
+});
+
+aiDifficultyEl.addEventListener("change", ()=>{
+  if(mode!=="ai") return;
+  updateTurnLabel();
+});
+
+createRoomBtn.addEventListener("click", ()=>{
+  if(online){
+    alert("You are already in an online room.");
+    return;
+  }
+  createRoom();
+});
+
+joinRoomBtn.addEventListener("click", ()=>{
+  if(online){
+    alert("You are already in an online room.");
+    return;
+  }
+  joinRoom();
+});
+
+// ---------- Boot ----------
+function boot(){
+  initBoard();
+  buildBoardUI();
+  render();
+
+  if(!db){
+    setMessage("Firebase not connected (offline play still works).");
+  }
+}
+
+boot();
