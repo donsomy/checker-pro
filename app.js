@@ -801,29 +801,35 @@ function applyMoveOnBoard(b, move){
   return nb;
 }
 
-function aiMakeMove(){
+function aiMakeMove() {
 
   const status = document.getElementById("aiStatus");
 
-  status.textContent = "AI thinking...";
   status.classList.add("ai-thinking");
 
   setTimeout(() => {
 
-    // === ORIGINAL AI CODE STARTS HERE ===
     const depth = aiDepth();
     const color = aiSide;
     const mustChain = mustContinueChain;
 
     const moves = getMovesForColorOnBoard(board, color, mustChain);
-    if(!moves.length){
-      status.textContent = "";
+    if (!moves.length) {
       status.classList.remove("ai-thinking");
       return;
-       status.textContent = "";
+    }
+
+    // === YOUR EXISTING MINIMAX LOGIC HERE ===
+    const bestMove = getBestMove(board, depth, color);
+
+    executeMove(bestMove);
+
+    renderBoard(); // ← IMPORTANT
+
     status.classList.remove("ai-thinking");
 
-  }, 900); // delay (800–1200 feels human)
+  }, 900);
+
 }
     
 
