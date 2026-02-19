@@ -825,7 +825,7 @@ function aiMakeMove(){
 
   }, 900); // delay (800–1200 feels human)
 }
-    }
+    
 
     // rest of your minimax logic continues...
   // minimax with alpha-beta
