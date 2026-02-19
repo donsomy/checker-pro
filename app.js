@@ -649,8 +649,7 @@ function aiDepth(){
   const d = aiDifficultyEl.value;
   if(d==="easy") return 2;
   if(d==="hard") return 4;
-   if(d==="legendary") return 7;
-  return 4; // legendary
+  return 6; // legendary
 }
 
 function evaluateBoard(b){
@@ -802,7 +801,6 @@ function applyMoveOnBoard(b, move){
   return nb;
 }
 
-function aiMakeMove(){
 function aiMakeMove(){
 
   const status = document.getElementById("aiStatus");
