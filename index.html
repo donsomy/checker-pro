@@ -3,7 +3,7 @@
 <head>
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0"/>
-  <title>Checkers Pro</title>
+  <title>Checkers Pro (10x10 International)</title>
   <link rel="stylesheet" href="style.css"/>
 </head>
 <body>
@@ -19,19 +19,45 @@
         <button id="createRoomBtn" class="btn">Create Online Room</button>
         <button id="joinRoomBtn" class="btn">Join Room</button>
         <button id="modeBtn" class="btn">Mode: 2 Player</button>
+
+        <select id="aiDifficulty" class="select" title="AI difficulty">
+          <option value="easy">AI: Easy</option>
+          <option value="hard">AI: Hard</option>
+          <option value="legendary">AI: Legendary</option>
+        </select>
       </div>
     </header>
 
     <main class="main">
+      <div class="status">
+        <div class="barWrap">
+          <div class="barLabel">Red</div>
+          <div class="barOuter"><div id="redBar" class="barInner"></div></div>
+          <div id="redCount" class="barCount">20</div>
+        </div>
+        <div class="barWrap">
+          <div class="barLabel">Black</div>
+          <div class="barOuter"><div id="blackBar" class="barInner"></div></div>
+          <div id="blackCount" class="barCount">20</div>
+        </div>
+      </div>
+
       <div id="board" class="board" aria-label="Checkers board"></div>
     </main>
 
     <footer class="footer">
       <div id="message" class="message"></div>
-      <div class="hint">Tap a piece → tap a highlighted square.</div>
-      <div class="tip">Tip: Online mode disables AI mode.</div>
+      <div class="hint">Tap a piece → tap a highlighted square. Captures are mandatory.</div>
+      <div class="tip">Online mode disables AI mode.</div>
     </footer>
   </div>
+
+  <!-- Sounds -->
+  <audio id="sfxMove" src="sfx/move.mp3" preload="auto"></audio>
+  <audio id="sfxCapture" src="sfx/capture.mp3" preload="auto"></audio>
+  <audio id="sfxCrown" src="sfx/crown.mp3" preload="auto"></audio>
+  <audio id="sfxWin" src="sfx/win.mp3" preload="auto"></audio>
+  <audio id="sfxClick" src="sfx/click.mp3" preload="auto"></audio>
 
   <!-- Firebase (Compat SDK) -->
   <script src="https://www.gstatic.com/firebasejs/9.23.0/firebase-app-compat.js"></script>
@@ -43,4 +69,4 @@
   <!-- Game logic -->
   <script src="app.js"></script>
 </body>
-</html>
+  </html>
