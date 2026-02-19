@@ -811,11 +811,7 @@ function aiMakeMove(){
 
     // === Your original AI logic here ===
 
-    status.classList.remove("ai-thinking");
-    status.innerHTML = "";
-
-  }, 900);
-}
+    
   const depth = aiDepth();
   const color = aiSide;
 
@@ -832,6 +828,11 @@ function aiMakeMove(){
       // big scores
       if(winner===RED) return 99999;
       return -99999;
+       status.classList.remove("ai-thinking");
+    status.innerHTML = "";
+
+  }, 900);
+
     }
     if(d===0){
       return evaluateBoard(b);
