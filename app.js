@@ -801,23 +801,16 @@ function applyMoveOnBoard(b, move){
   return nb;
 }
 
-function aiMakeMove() {
+function aiMakeMove(){
+  // AI plays aiSide
+  const depth = aiDepth();
+  const color = aiSide;
 
-  const status = document.getElementById("aiStatus");
+  // If chain forced in real game, AI must continue with that piece
+  const mustChain = mustContinueChain;
 
-  status.classList.add("ai-thinking");
-
-  setTimeout(() => {
-
-    const depth = aiDepth();
-    const color = aiSide;
-    const mustChain = mustContinueChain;
-
-    const moves = getMovesForColorOnBoard(board, color, mustChain);
-    if (!moves.length) {
-      status.classList.remove("ai-thinking");
-      return;
-    }
+  const moves = getMovesForColorOnBoard(board, color, mustChain);
+  if(!moves.length) return;
 
     // === YOUR EXISTING MINIMAX LOGIC HERE ===
     const bestMove = getBestMove(board, depth, color);
