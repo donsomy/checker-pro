@@ -431,17 +431,10 @@ function onSquareClick(e){
 
   // If chain forced, only allow selecting that piece
   if(mustContinueChain){
-// allow clicking destination squares too
-const isChainPiece = (r===mustContinueChain.r && c===mustContinueChain.c);
-
-// if clicked somewhere else, only allow it if it's a legal destination
-if(!isChainPiece){
-if(!selected) return;
-const isLegalDest = legalMoves.some(m => m.to.r===r && m.to.c===c);
-if(!isLegalDest) return;
-}
-}
-
+    if(r!==mustContinueChain.r || c!==mustContinueChain.c){
+      return;
+    }
+  }
 
   // Select if clicking own piece
   if(p!==0 && color===turn){
@@ -812,22 +805,7 @@ function aiMakeMove(){
   const moves = getMovesForColorOnBoard(board, color, mustChain);
   if(!moves.length) return;
 
-    // === YOUR EXISTING MINIMAX LOGIC HERE ===
-    const bestMove = getBestMove(board, depth, color);
-
-    executeMove(bestMove);
-
-    renderBoard(); // ← IMPORTANT
-
-    status.classList.remove("ai-thinking");
-
-  }, 900);
-
-}
-    
-
-    // rest of your minimax logic continues...
-  // minimax with alpha-beta
+   // minimax with alpha-beta
   function minimax(b, turnColor, d, alpha, beta, chainPiece=null){
     const winner = winnerOnBoard(b);
     if(winner){
