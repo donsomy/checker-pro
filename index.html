@@ -52,12 +52,13 @@
     </footer>
   </div>
 
-  <!-- Sounds -->
-  <audio id="sfxMove" src="sfx/move.mp3" preload="auto"></audio>
-  <audio id="sfxCapture" src="sfx/capture.mp3" preload="auto"></audio>
-  <audio id="sfxCrown" src="sfx/crown.mp3" preload="auto"></audio>
-  <audio id="sfxWin" src="sfx/win.mp3" preload="auto"></audio>
-  <audio id="sfxClick" src="sfx/click.mp3" preload="auto"></audio>
+ <!-- Sound effects (preload="none" or "auto" to save bandwidth) -->
+<audio id="sfxMove" preload="none" src="sounds/move.mp3"></audio>
+<audio id="sfxCapture" preload="none" src="sounds/capture.mp3"></audio>
+<audio id="sfxCrown" preload="none" src="sounds/crown.mp3"></audio>
+<audio id="sfxWin" preload="none" src="sounds/win.mp3"></audio>
+<audio id="sfxClick" preload="none" src="sounds/click.mp3"></audio>
+
 
   <!-- Firebase (Compat SDK) -->
   <script src="https://www.gstatic.com/firebasejs/9.23.0/firebase-app-compat.js"></script>
