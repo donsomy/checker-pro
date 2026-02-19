@@ -802,6 +802,20 @@ function applyMoveOnBoard(b, move){
 
 function aiMakeMove(){
   // AI plays aiSide
+   const status = document.getElementById("aiStatus");
+
+  status.innerHTML = '<span></span>';
+  status.classList.add("ai-thinking");
+
+  setTimeout(() => {
+
+    // === Your original AI logic here ===
+
+    status.classList.remove("ai-thinking");
+    status.innerHTML = "";
+
+  }, 900);
+}
   const depth = aiDepth();
   const color = aiSide;
 
