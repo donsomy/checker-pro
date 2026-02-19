@@ -1,88 +1,277 @@
-// ---------------- DOM ----------------
+/* Checkers Pro — 10x10 International Draughts (Online + AI)
+   - 10x10 board, 20 pieces per side
+   - Mandatory captures
+   - Men move forward, capture forward/backward (international)
+   - Flying kings (move any distance diagonally)
+   - Flying king capture: ONE direction per jump (no turn inside a single jump)
+   - Multi-capture chaining supported
+   - AI with Easy/Hard/Legendary (minimax)
+   - Online mode with Firebase Realtime DB
+*/
+
+const BOARD_SIZE = 10;
+
+// Piece encoding
+// 0 empty
+// 1 red man
+// 2 black man
+// 3 red king
+// 4 black king
+
+const RED = "red";
+const BLACK = "black";
+
 const boardEl = document.getElementById("board");
 const turnLabel = document.getElementById("turnLabel");
 const messageEl = document.getElementById("message");
-const restartBtn = document.getElementById("restartBtn");
-const modeBtn = document.getElementById("modeBtn");
 
+const restartBtn = document.getElementById("restartBtn");
 const createRoomBtn = document.getElementById("createRoomBtn");
 const joinRoomBtn = document.getElementById("joinRoomBtn");
+const modeBtn = document.getElementById("modeBtn");
+const aiDifficultyEl = document.getElementById("aiDifficulty");
 
-// ---------------- Game Config ----------------
-const SIZE = 8;
+const redBar = document.getElementById("redBar");
+const blackBar = document.getElementById("blackBar");
+const redCountEl = document.getElementById("redCount");
+const blackCountEl = document.getElementById("blackCount");
 
-// board[r][c] = null or { color: "red"|"black", king: boolean }
-let board = [];
-let turn = "red";
-let selected = null;
-let legalMoves = [];
-let mustContinueChain = false;
+const sfxMove = document.getElementById("sfxMove");
+const sfxCapture = document.getElementById("sfxCapture");
+const sfxCrown = document.getElementById("sfxCrown");
+const sfxWin = document.getElementById("sfxWin");
+const sfxClick = document.getElementById("sfxClick");
 
-// Modes
-let mode = "2p"; // "2p" or "ai"
-let aiColor = "black";
-let aiDifficulty = "hard"; // easy | medium | hard
+function playSfx(audio){
+  if(!audio) return;
+  try{
+    audio.currentTime = 0;
+    audio.play().catch(()=>{});
+  }catch(e){}
+}
 
-// Online multiplayer
+let board = null;
+let turn = RED;
+
+let selected = null; // {r,c}
+let legalMoves = []; // moves for selected
+let forcedMovesAll = []; // all forced capture moves for current player
+
+let mode = "2p"; // "2p" | "ai"
+let aiSide = BLACK; // AI plays black
 let online = false;
+
 let roomId = null;
-let playerRole = null; // "red" or "black"
 let roomRef = null;
-let onlineReady = false; // BOTH players joined?
 
-// ---------------- Helpers ----------------
+let myRole = null; // "host" or "guest"
+let myColor = null; // "red" or "black"
+let waitingForPlayer = false;
 
-function setMessage(msg) {
-  messageEl.textContent = msg || "";
+let mustContinueChain = null; // {r,c} piece that must continue capture chain
+
+// ---------- Helpers ----------
+function inBounds(r,c){ return r>=0 && r<BOARD_SIZE && c>=0 && c<BOARD_SIZE; }
+
+function isRed(p){ return p===1 || p===3; }
+function isBlack(p){ return p===2 || p===4; }
+function isKing(p){ return p===3 || p===4; }
+function ownerOf(p){
+  if(isRed(p)) return RED;
+  if(isBlack(p)) return BLACK;
+  return null;
+}
+function makeKing(p){
+  if(p===1) return 3;
+  if(p===2) return 4;
+  return p;
 }
 
-function updateTurnLabel() {
-  const t = turn === "red" ? "Red" : "Black";
+function cloneBoard(b){ return b.map(row => row.slice()); }
 
-  let m = "2 Player";
-  if (online) m = `Online (${playerRole || "?"})`;
-  else if (mode === "ai") m = `AI (${aiDifficulty})`;
+function setMessage(msg){ messageEl.textContent = msg || ""; }
 
-  turnLabel.textContent = `Turn: ${t} • Mode: ${m}`;
+function normalizeBoard(b){
+  if(!b) return null;
+  if(Array.isArray(b)) return b;
+  // object form from RTDB
+  const arr = [];
+  for(let r=0;r<BOARD_SIZE;r++){
+    arr[r]=[];
+    for(let c=0;c<BOARD_SIZE;c++){
+      arr[r][c] = b?.[r]?.[c] ?? 0;
+    }
+  }
+  return arr;
 }
 
-function inBounds(r, c) {
-  return r >= 0 && r < SIZE && c >= 0 && c < SIZE;
+function countPieces(){
+  let red=0, black=0;
+  for(let r=0;r<BOARD_SIZE;r++){
+    for(let c=0;c<BOARD_SIZE;c++){
+      const p = board[r][c];
+      if(isRed(p)) red++;
+      else if(isBlack(p)) black++;
+    }
+  }
+  return {red, black};
 }
 
-function getDirections(piece) {
-  if (piece.king) return [-1, 1];
-  return piece.color === "red" ? [-1] : [1];
+function updateBars(){
+  const {red, black} = countPieces();
+  redCountEl.textContent = red;
+  blackCountEl.textContent = black;
+
+  const max = 20; // start pieces per side
+  redBar.style.width = Math.max(0, Math.min(100, (red/max)*100)) + "%";
+  blackBar.style.width = Math.max(0, Math.min(100, (black/max)*100)) + "%";
 }
 
-// ---- IMPORTANT: STRONG NORMALIZER (Fixes blank board) ----
-function normalizeBoard(raw) {
-  // Always return a full 8x8 array
-  const out = Array.from({ length: SIZE }, () => Array(SIZE).fill(null));
+// ---------- Init ----------
+function initBoard(){
+  board = Array.from({length:BOARD_SIZE}, ()=>Array(BOARD_SIZE).fill(0));
 
-  if (!raw) return out;
+  // International: each side occupies 4 rows on dark squares
+  // Black at top (rows 0-3), Red at bottom (rows 6-9)
+  for(let r=0;r<4;r++){
+    for(let c=0;c<BOARD_SIZE;c++){
+      if((r+c)%2===1) board[r][c]=2;
+    }
+  }
+  for(let r=BOARD_SIZE-4;r<BOARD_SIZE;r++){
+    for(let c=0;c<BOARD_SIZE;c++){
+      if((r+c)%2===1) board[r][c]=1;
+    }
+  }
 
-  // Firebase may send: array, object, sparse object, etc.
-  for (let r = 0; r < SIZE; r++) {
-    for (let c = 0; c < SIZE; c++) {
-      let cell = null;
+  turn = RED;
+  selected = null;
+  legalMoves = [];
+  mustContinueChain = null;
+  setMessage("");
+  waitingForPlayer = false;
+  updateBars();
+}
 
-      // array format
-      if (Array.isArray(raw)) {
-        cell = raw?.[r]?.[c] ?? null;
-      } else {
-        // object format
-        cell = raw?.[r]?.[c] ?? null;
+function buildBoardUI(){
+  boardEl.innerHTML = "";
+  boardEl.style.gridTemplateColumns = `repeat(${BOARD_SIZE}, 1fr)`;
+
+  for(let r=0;r<BOARD_SIZE;r++){
+    for(let c=0;c<BOARD_SIZE;c++){
+      const sq = document.createElement("div");
+      sq.className = "square " + (((r+c)%2===0) ? "light" : "dark");
+      sq.dataset.r = r;
+      sq.dataset.c = c;
+      sq.addEventListener("click", onSquareClick);
+      boardEl.appendChild(sq);
+    }
+  }
+}
+
+function render(){
+  if(!board) return;
+
+  // Clear all classes
+  const squares = boardEl.querySelectorAll(".square");
+  squares.forEach(sq=>{
+    sq.classList.remove("selected","legal","capture");
+    sq.innerHTML = "";
+  });
+
+  // Pieces
+  for(let r=0;r<BOARD_SIZE;r++){
+    for(let c=0;c<BOARD_SIZE;c++){
+      const p = board[r][c];
+      if(p===0) continue;
+      const sq = getSquareEl(r,c);
+      const piece = document.createElement("div");
+      piece.className = "piece " + (isRed(p) ? "red" : "black");
+      if(isKing(p)) piece.classList.add("king");
+      sq.appendChild(piece);
+    }
+  }
+
+  // Selected
+  if(selected){
+    getSquareEl(selected.r, selected.c)?.classList.add("selected");
+  }
+
+  // Legal
+  for(const m of legalMoves){
+    const sq = getSquareEl(m.to.r, m.to.c);
+    if(!sq) continue;
+    sq.classList.add("legal");
+    if(m.captures && m.captures.length>0) sq.classList.add("capture");
+  }
+
+  updateBars();
+  updateTurnLabel();
+}
+
+function getSquareEl(r,c){
+  return boardEl.querySelector(`.square[data-r="${r}"][data-c="${c}"]`);
+}
+
+function updateTurnLabel(){
+  let modeText = (mode==="ai") ? `AI (${aiDifficultyEl.value})` : "2 Player";
+  if(online) modeText = "Online";
+
+  let waitText = waitingForPlayer ? " • Waiting for player…" : "";
+  let roleText = "";
+  if(online && myColor){
+    roleText = ` • You: ${myColor.toUpperCase()}`;
+  }
+
+  turnLabel.textContent = `Turn: ${turn.toUpperCase()} • Mode: ${modeText}${roleText}${waitText}`;
+}
+
+// ---------- Move generation (International) ----------
+
+function getAllPiecesFor(color){
+  const out=[];
+  for(let r=0;r<BOARD_SIZE;r++){
+    for(let c=0;c<BOARD_SIZE;c++){
+      const p = board[r][c];
+      if(p===0) continue;
+      if(color===RED && isRed(p)) out.push({r,c});
+      if(color===BLACK && isBlack(p)) out.push({r,c});
+    }
+  }
+  return out;
+}
+
+function dirsForMan(color){
+  // Men move forward only (red moves up, black moves down)
+  return color===RED ? [[-1,-1],[-1,1]] : [[1,-1],[1,1]];
+}
+
+function allDiagDirs(){
+  return [[1,1],[1,-1],[-1,1],[-1,-1]];
+}
+
+// Non-capture moves
+function getQuietMovesFrom(r,c){
+  const p = board[r][c];
+  if(p===0) return [];
+  const color = ownerOf(p);
+  const out=[];
+
+  if(isKing(p)){
+    // flying king: slide any distance
+    for(const [dr,dc] of allDiagDirs()){
+      let nr=r+dr, nc=c+dc;
+      while(inBounds(nr,nc) && board[nr][nc]===0){
+        out.push({from:{r,c}, to:{r:nr,c:nc}, captures:[]});
+        nr+=dr; nc+=dc;
       }
-
-      // If it looks like a piece, keep it. Else null.
-      if (cell && typeof cell === "object" && (cell.color === "red" || cell.color === "black")) {
-        out[r][c] = {
-          color: cell.color,
-          king: !!cell.king
-        };
-      } else {
-        out[r][c] = null;
+    }
+  }else{
+    // man: 1 step forward
+    for(const [dr,dc] of dirsForMan(color)){
+      const nr=r+dr, nc=c+dc;
+      if(inBounds(nr,nc) && board[nr][nc]===0){
+        out.push({from:{r,c}, to:{r:nr,c:nc}, captures:[]});
       }
     }
   }
@@ -90,314 +279,361 @@ function normalizeBoard(raw) {
   return out;
 }
 
-// Ensure board is safe
-function ensureBoardSafe() {
-  if (!Array.isArray(board)) board = [];
-  if (board.length !== SIZE) board = normalizeBoard(board);
-
-  for (let r = 0; r < SIZE; r++) {
-    if (!Array.isArray(board[r]) || board[r].length !== SIZE) {
-      board = normalizeBoard(board);
-      break;
-    }
-  }
-}
-
-// ---------------- Core ----------------
-
-function initBoard() {
-  board = Array.from({ length: SIZE }, () => Array(SIZE).fill(null));
-
-  // Black at top
-  for (let r = 0; r < 3; r++) {
-    for (let c = 0; c < SIZE; c++) {
-      if ((r + c) % 2 === 1) board[r][c] = { color: "black", king: false };
-    }
-  }
-
-  // Red at bottom
-  for (let r = 5; r < 8; r++) {
-    for (let c = 0; c < SIZE; c++) {
-      if ((r + c) % 2 === 1) board[r][c] = { color: "red", king: false };
-    }
-  }
-
-  turn = "red";
-  selected = null;
-  legalMoves = [];
-  mustContinueChain = false;
-
-  ensureBoardSafe();
-  updateTurnLabel();
-  render();
-
-  // only AI if not online
-  maybeAIMove();
-}
-
-function getMovesFrom(r, c, includeSimple = true) {
+// Capture moves (single jump options from a square)
+function getCaptureMovesFrom(r,c){
   const p = board[r][c];
-  if (!p) return [];
+  if(p===0) return [];
+  const color = ownerOf(p);
+  const out=[];
 
-  const dirs = getDirections(p);
-  const results = [];
-
-  for (const dr of dirs) {
-    for (const dc of [-1, 1]) {
-      const r1 = r + dr;
-      const c1 = c + dc;
-      const r2 = r + dr * 2;
-      const c2 = c + dc * 2;
-
-      // Simple move
-      if (includeSimple && inBounds(r1, c1) && board[r1][c1] === null) {
-        results.push({ to: { r: r1, c: c1 }, capture: null });
+  if(isKing(p)){
+    // flying king capture:
+    // along a diagonal: empty squares, then exactly one enemy, then at least one empty landing square beyond.
+    for(const [dr,dc] of allDiagDirs()){
+      let nr=r+dr, nc=c+dc;
+      // skip empties
+      while(inBounds(nr,nc) && board[nr][nc]===0){
+        nr+=dr; nc+=dc;
       }
+      if(!inBounds(nr,nc)) continue;
 
-      // Capture
-      if (inBounds(r2, c2) && board[r2][c2] === null) {
-        if (
-          inBounds(r1, c1) &&
-          board[r1][c1] &&
-          board[r1][c1].color !== p.color
-        ) {
-          results.push({ to: { r: r2, c: c2 }, capture: { r: r1, c: c1 } });
-        }
+      const mid = board[nr][nc];
+      if(mid===0) continue;
+      if(ownerOf(mid)===color) continue;
+
+      // enemy found; squares beyond must be empty; each empty is a legal landing
+      let lr=nr+dr, lc=nc+dc;
+      while(inBounds(lr,lc) && board[lr][lc]===0){
+        out.push({
+          from:{r,c},
+          to:{r:lr,c:lc},
+          captures:[{r:nr,c:nc}]
+        });
+        lr+=dr; lc+=dc;
       }
+    }
+  }else{
+    // man capture: forward/backward allowed in international
+    for(const [dr,dc] of allDiagDirs()){
+      const mr=r+dr, mc=c+dc;
+      const lr=r+2*dr, lc=c+2*dc;
+      if(!inBounds(lr,lc) || !inBounds(mr,mc)) continue;
+      const mid = board[mr][mc];
+      if(mid===0) continue;
+      if(ownerOf(mid)===color) continue;
+      if(board[lr][lc]!==0) continue;
+      out.push({
+        from:{r,c},
+        to:{r:lr,c:lc},
+        captures:[{r:mr,c:mc}]
+      });
     }
   }
 
-  return results;
+  return out;
 }
 
-function getAllMovesFor(color) {
-  ensureBoardSafe();
-
-  const movesByFrom = new Map();
-  let anyCapture = false;
-
-  if (color !== "red" && color !== "black") {
-    return { hasCapture: false, movesByFrom };
+function getAllCaptureMovesFor(color){
+  const pieces = getAllPiecesFor(color);
+  const all=[];
+  for(const pos of pieces){
+    const moves = getCaptureMovesFrom(pos.r,pos.c);
+    for(const m of moves) all.push(m);
   }
-
-  for (let r = 0; r < SIZE; r++) {
-    for (let c = 0; c < SIZE; c++) {
-      const p = board[r][c];
-      if (!p || p.color !== color) continue;
-
-      const moves = getMovesFrom(r, c, true);
-      if (moves.some((m) => m.capture)) anyCapture = true;
-      movesByFrom.set(`${r},${c}`, moves);
-    }
-  }
-
-  if (anyCapture) {
-    for (const [k, moves] of movesByFrom.entries()) {
-      movesByFrom.set(k, moves.filter((m) => m.capture));
-    }
-  }
-
-  return { hasCapture: anyCapture, movesByFrom };
+  return all;
 }
 
-function render() {
-  ensureBoardSafe();
-  boardEl.innerHTML = "";
-
-  const { hasCapture, movesByFrom } = getAllMovesFor(turn);
-
-  for (let r = 0; r < SIZE; r++) {
-    for (let c = 0; c < SIZE; c++) {
-      const sq = document.createElement("div");
-      sq.className = "square " + ((r + c) % 2 === 0 ? "light" : "dark");
-      sq.dataset.r = r;
-      sq.dataset.c = c;
-
-      // Move hints
-      if (selected) {
-        const isTarget = legalMoves.some((m) => m.to.r === r && m.to.c === c);
-        if (isTarget) {
-          const move = legalMoves.find((m) => m.to.r === r && m.to.c === c);
-          sq.classList.add(move.capture ? "captureHint" : "hint");
-        }
-      }
-
-      const p = board[r][c];
-      if (p) {
-        const piece = document.createElement("div");
-        piece.className = `piece ${p.color}`;
-
-        if (selected && selected.r === r && selected.c === c) {
-          piece.classList.add("selected");
-        }
-
-        if (p.king) {
-          const k = document.createElement("div");
-          k.className = "king";
-          k.textContent = "K";
-          piece.appendChild(k);
-        }
-
-        // forced capture highlight
-        if (!mustContinueChain && hasCapture) {
-          const moves = movesByFrom.get(`${r},${c}`) || [];
-          if (p.color === turn && moves.some((m) => m.capture)) {
-            piece.style.boxShadow =
-              "0 0 0 3px rgba(255,183,3,0.65), 0 10px 18px rgba(0,0,0,0.35)";
-          }
-        }
-
-        sq.appendChild(piece);
-      }
-
-      sq.addEventListener("click", onSquareClick);
-      boardEl.appendChild(sq);
-    }
+function getAllLegalMovesFor(color){
+  const caps = getAllCaptureMovesFor(color);
+  if(caps.length>0) return {moves:caps, forced:true};
+  // quiet moves
+  const pieces = getAllPiecesFor(color);
+  const all=[];
+  for(const pos of pieces){
+    const moves = getQuietMovesFrom(pos.r,pos.c);
+    for(const m of moves) all.push(m);
   }
+  return {moves:all, forced:false};
 }
 
-function onSquareClick(e) {
-  // Online: block until both players are ready
-  if (online && !onlineReady) {
-    setMessage("Waiting for player...");
-    return;
+// After making a capture, you must continue capturing with the same piece if possible.
+function getCaptureMovesForChainAt(r,c){
+  return getCaptureMovesFrom(r,c);
+}
+
+// ---------- Apply move ----------
+function applyMove(move, playSounds=true){
+  const p = board[move.from.r][move.from.c];
+  board[move.from.r][move.from.c] = 0;
+  board[move.to.r][move.to.c] = p;
+
+  let didCapture = false;
+  if(move.captures && move.captures.length){
+    didCapture = true;
+    for(const cap of move.captures){
+      board[cap.r][cap.c] = 0;
+    }
   }
 
-  // Online: block if not your turn
-  if (online && playerRole !== turn) {
-    setMessage("Not your turn.");
-    return;
+  // Promotion: international promotes when reaching far edge
+  let moved = board[move.to.r][move.to.c];
+  if(!isKing(moved)){
+    if(ownerOf(moved)===RED && move.to.r===0){
+      board[move.to.r][move.to.c] = makeKing(moved);
+      if(playSounds) playSfx(sfxCrown);
+    }else if(ownerOf(moved)===BLACK && move.to.r===BOARD_SIZE-1){
+      board[move.to.r][move.to.c] = makeKing(moved);
+      if(playSounds) playSfx(sfxCrown);
+    }
   }
 
-  // AI: block if AI turn
-  if (!online && mode === "ai" && turn === aiColor) return;
+  if(playSounds){
+    if(didCapture) playSfx(sfxCapture);
+    else playSfx(sfxMove);
+  }
+
+  return didCapture;
+}
+
+function checkWinner(){
+  const {red, black} = countPieces();
+  if(red===0) return BLACK;
+  if(black===0) return RED;
+
+  // no legal moves
+  const redMoves = getAllLegalMovesFor(RED).moves.length;
+  const blackMoves = getAllLegalMovesFor(BLACK).moves.length;
+  if(redMoves===0) return BLACK;
+  if(blackMoves===0) return RED;
+
+  return null;
+}
+
+// ---------- Input / Turn logic ----------
+function isMyTurn(){
+  if(!online) return true;
+  if(!myColor) return false;
+  return myColor === turn;
+}
+
+function onSquareClick(e){
+  if(waitingForPlayer) return;
+
+  playSfx(sfxClick);
 
   const r = Number(e.currentTarget.dataset.r);
   const c = Number(e.currentTarget.dataset.c);
+
+  if(online && !isMyTurn()) return;
+
   const p = board[r][c];
+  const color = ownerOf(p);
 
-  // Multi capture chain lock
-  if (mustContinueChain && selected) {
-    const move = legalMoves.find((m) => m.to.r === r && m.to.c === c);
-    if (move) applyMove(selected.r, selected.c, move);
-    else setMessage("You must continue capturing.");
-    return;
-  }
+  // If chain forced, only allow selecting that piece
+  if(mustContinueChain){
+// allow clicking destination squares too
+const isChainPiece = (r===mustContinueChain.r && c===mustContinueChain.c);
 
-  // Select
-  if (p && p.color === turn) {
-    selectPiece(r, c);
-    return;
-  }
-
-  // Move
-  if (selected) {
-    const move = legalMoves.find((m) => m.to.r === r && m.to.c === c);
-    if (move) applyMove(selected.r, selected.c, move);
-    else {
-      setMessage("");
-      selected = null;
-      legalMoves = [];
-      render();
-    }
-  }
+// if clicked somewhere else, only allow it if it's a legal destination
+if(!isChainPiece){
+if(!selected) return;
+const isLegalDest = legalMoves.some(m => m.to.r===r && m.to.c===c);
+if(!isLegalDest) return;
+}
 }
 
-function selectPiece(r, c) {
-  const { hasCapture, movesByFrom } = getAllMovesFor(turn);
-  const moves = movesByFrom.get(`${r},${c}`) || [];
-
-  if (hasCapture && !moves.some((m) => m.capture)) {
-    setMessage("Capture is available — you must capture.");
+  // Select if clicking own piece
+  if(p!==0 && color===turn){
+    selected = {r,c};
+    legalMoves = getMovesForSelection(r,c);
+    render();
     return;
   }
 
-  selected = { r, c };
-  legalMoves = moves;
-  setMessage(moves.length ? "" : "No moves for this piece.");
-  render();
-}
+  // If no selection, ignore
+  if(!selected) return;
 
-function applyMove(fr, fc, move) {
-  ensureBoardSafe();
+  // Try move
+  const move = legalMoves.find(m => m.to.r===r && m.to.c===c);
+  if(!move) return;
 
-  const piece = board[fr][fc];
-  if (!piece) return;
+  const didCapture = applyMove(move, true);
 
-  board[fr][fc] = null;
-
-  const tr = move.to.r;
-  const tc = move.to.c;
-  board[tr][tc] = piece;
-
-  // Capture
-  if (move.capture) board[move.capture.r][move.capture.c] = null;
-
-  // Promote
-  if (!piece.king) {
-    if (piece.color === "red" && tr === 0) piece.king = true;
-    if (piece.color === "black" && tr === SIZE - 1) piece.king = true;
-  }
-
-  // Multi jump
-  if (move.capture) {
-    const nextMoves = getMovesFrom(tr, tc, false).filter((m) => m.capture);
-    if (nextMoves.length) {
-      selected = { r: tr, c: tc };
-      legalMoves = nextMoves;
-      mustContinueChain = true;
-      setMessage("Multi-capture! Continue.");
+  // If capture, check chain
+  if(didCapture){
+    const nextCaps = getCaptureMovesForChainAt(r,c);
+    if(nextCaps.length>0){
+      mustContinueChain = {r,c};
+      selected = {r,c};
+      legalMoves = nextCaps; // must capture
       render();
-      syncOnlineGame();
+      // Sync online
+      if(online) pushGameState();
       return;
     }
   }
 
-  mustContinueChain = false;
+  // End turn
+  mustContinueChain = null;
   selected = null;
   legalMoves = [];
-  turn = turn === "red" ? "black" : "red";
-  updateTurnLabel();
-  setMessage("");
+  turn = (turn===RED) ? BLACK : RED;
 
-  const winner = isGameOver(turn) ? (turn === "red" ? "Black" : "Red") : null;
-  if (winner) setMessage(`${winner} wins!`);
+  const winner = checkWinner();
+  if(winner){
+    setMessage(`${winner.toUpperCase()} wins!`);
+    playSfx(sfxWin);
+  }else{
+    setMessage("");
+  }
 
   render();
-  syncOnlineGame();
-  maybeAIMove();
+
+  if(online) pushGameState();
+
+  // AI turn
+  if(mode==="ai" && !online && turn===aiSide && !winner){
+    setTimeout(()=> aiMakeMove(), 250);
+  }
 }
 
-function isGameOver(colorToPlay) {
-  ensureBoardSafe();
+function getMovesForSelection(r,c){
+  const p = board[r][c];
+  if(p===0) return [];
+  const color = ownerOf(p);
+  if(color!==turn) return [];
 
-  let pieces = 0;
+  // If chain forced, only captures
+  if(mustContinueChain){
+    return getCaptureMovesForChainAt(r,c);
+  }
 
-  for (let r = 0; r < SIZE; r++) {
-    for (let c = 0; c < SIZE; c++) {
-      const p = board[r][c];
-      if (p && p.color === colorToPlay) pieces++;
+  // Mandatory capture rule
+  const capsAll = getAllCaptureMovesFor(turn);
+  if(capsAll.length>0){
+    // Only capture moves are legal
+    return getCaptureMovesFrom(r,c);
+  }
+
+  return getQuietMovesFrom(r,c);
+}
+
+// ---------- Online (Firebase) ----------
+function setOnlineMode(on){
+  online = on;
+  if(on){
+    mode = "2p";
+    modeBtn.textContent = "Mode: 2 Player";
+    setMessage("Online mode enabled.");
+  }else{
+    setMessage("");
+  }
+  updateTurnLabel();
+}
+
+function newRoomId(){
+  const chars = "ABCDEFGHJKLMNPQRSTUVWXYZ23456789";
+  let s="";
+  for(let i=0;i<6;i++) s += chars[Math.floor(Math.random()*chars.length)];
+  return s;
+}
+
+function createRoom(){
+  if(!db){
+    alert("Firebase not ready. Check firebase.js config.");
+    return;
+  }
+  const id = newRoomId();
+  roomId = id;
+  myRole = "host";
+  myColor = RED;
+  waitingForPlayer = true;
+
+  initBoard();
+  buildBoardUI();
+  render();
+
+  setOnlineMode(true);
+
+  const payload = {
+    createdAt: Date.now(),
+    players: { host: true, guest: false },
+    game: {
+      board,
+      turn,
+      mustContinueChain: null,
+      winner: null
     }
-  }
+  };
 
-  if (pieces === 0) return true;
+  db.ref("rooms/" + id).set(payload);
 
-  const { movesByFrom } = getAllMovesFor(colorToPlay);
-  for (const moves of movesByFrom.values()) {
-    if (moves.length) return false;
-  }
+  listenToRoom(id);
 
-  return true;
+  alert("Room created: " + id + "\nShare this code with your friend.");
 }
 
-// ---------------- Online Multiplayer ----------------
+function joinRoom(){
+  if(!db){
+    alert("Firebase not ready. Check firebase.js config.");
+    return;
+  }
+  const id = prompt("Enter Room Code:");
+  if(!id) return;
+  roomId = id.trim().toUpperCase();
+  myRole = "guest";
+  myColor = BLACK;
 
-function syncOnlineGame() {
-  if (!online || !roomId) return;
+  setOnlineMode(true);
 
-  ensureBoardSafe();
+  // Mark guest joined
+  db.ref("rooms/" + roomId + "/players/guest").set(true);
 
-  const winner = isGameOver(turn) ? (turn === "red" ? "Black" : "Red") : null;
+  listenToRoom(roomId);
+}
+
+function listenToRoom(id){
+  roomRef = db.ref("rooms/" + id);
+
+  roomRef.on("value", (snap)=>{
+    const data = snap.val();
+    if(!data) return;
+
+    // Waiting message
+    const guestJoined = !!data.players?.guest;
+    waitingForPlayer = (myRole==="host" && !guestJoined);
+
+    if(!data.game || !data.game.board) return;
+
+    board = normalizeBoard(data.game.board);
+    if(!board) return;
+
+    turn = data.game.turn ?? RED;
+    mustContinueChain = data.game.mustContinueChain ?? null;
+
+    const winner = data.game.winner ?? null;
+
+    // Reset selection each sync
+    selected = null;
+    legalMoves = [];
+
+    if(waitingForPlayer){
+      setMessage("Waiting for player to join…");
+    }else if(winner){
+      setMessage(`${winner.toUpperCase()} wins!`);
+    }else{
+      setMessage("");
+    }
+
+    buildBoardUI();
+    render();
+  });
+}
+
+function pushGameState(){
+  if(!db || !roomId) return;
+
+  const winner = checkWinner();
 
   db.ref("rooms/" + roomId + "/game").set({
     board,
@@ -407,321 +643,377 @@ function syncOnlineGame() {
   });
 }
 
-function listenToRoom(id) {
-  roomRef = db.ref("rooms/" + id);
+// ---------- AI ----------
+function aiDepth(){
+  const d = aiDifficultyEl.value;
+  if(d==="easy") return 2;
+  if(d==="hard") return 4;
+  return 6; // legendary
+}
 
-  roomRef.on("value", (snap) => {
-    const data = snap.val();
-    if (!data) return;
+function evaluateBoard(b){
+  // simple heuristic:
+  // man = 10, king = 18
+  // plus center control
+  let score = 0;
+  for(let r=0;r<BOARD_SIZE;r++){
+    for(let c=0;c<BOARD_SIZE;c++){
+      const p=b[r][c];
+      if(p===0) continue;
+      const isK = (p===3 || p===4);
+      const val = isK ? 18 : 10;
 
-    // detect player readiness
-    const redIn = !!data.players?.red;
-    const blackIn = !!data.players?.black;
-    onlineReady = redIn && blackIn;
+      // center bonus
+      const dist = Math.abs(r-(BOARD_SIZE-1)/2) + Math.abs(c-(BOARD_SIZE-1)/2);
+      const centerBonus = (10 - dist) * 0.25;
 
-    // If game doesn't exist yet, show waiting
-    if (!data.game) {
-      updateTurnLabel();
-      setMessage("Waiting for game...");
+      if(isRed(p)) score += val + centerBonus;
+      else score -= val + centerBonus;
+    }
+  }
+  // positive = red better, negative = black better
+  return score;
+}
+
+function getMovesForColorOnBoard(b, color, mustChain=null){
+  // Generate moves on a provided board
+  function inB(r,c){ return r>=0 && r<BOARD_SIZE && c>=0 && c<BOARD_SIZE; }
+  function isR(p){ return p===1 || p===3; }
+  function isB(p){ return p===2 || p===4; }
+  function isK(p){ return p===3 || p===4; }
+  function own(p){
+    if(isR(p)) return RED;
+    if(isB(p)) return BLACK;
+    return null;
+  }
+  function dirsMan(col){
+    return col===RED ? [[-1,-1],[-1,1]] : [[1,-1],[1,1]];
+  }
+  function diag(){ return [[1,1],[1,-1],[-1,1],[-1,-1]]; }
+
+  function quietFrom(r,c){
+    const p=b[r][c];
+    if(p===0) return [];
+    const col=own(p);
+    const out=[];
+    if(isK(p)){
+      for(const [dr,dc] of diag()){
+        let nr=r+dr, nc=c+dc;
+        while(inB(nr,nc) && b[nr][nc]===0){
+          out.push({from:{r,c}, to:{r:nr,c:nc}, captures:[]});
+          nr+=dr; nc+=dc;
+        }
+      }
+    }else{
+      for(const [dr,dc] of dirsMan(col)){
+        const nr=r+dr, nc=c+dc;
+        if(inB(nr,nc) && b[nr][nc]===0) out.push({from:{r,c}, to:{r:nr,c:nc}, captures:[]});
+      }
+    }
+    return out;
+  }
+
+  function capsFrom(r,c){
+    const p=b[r][c];
+    if(p===0) return [];
+    const col=own(p);
+    const out=[];
+    if(isK(p)){
+      for(const [dr,dc] of diag()){
+        let nr=r+dr, nc=c+dc;
+        while(inB(nr,nc) && b[nr][nc]===0){
+          nr+=dr; nc+=dc;
+        }
+        if(!inB(nr,nc)) continue;
+        const mid=b[nr][nc];
+        if(mid===0) continue;
+        if(own(mid)===col) continue;
+
+        let lr=nr+dr, lc=nc+dc;
+        while(inB(lr,lc) && b[lr][lc]===0){
+          out.push({from:{r,c}, to:{r:lr,c:lc}, captures:[{r:nr,c:nc}]});
+          lr+=dr; lc+=dc;
+        }
+      }
+    }else{
+      for(const [dr,dc] of diag()){
+        const mr=r+dr, mc=c+dc;
+        const lr=r+2*dr, lc=c+2*dc;
+        if(!inB(lr,lc) || !inB(mr,mc)) continue;
+        const mid=b[mr][mc];
+        if(mid===0) continue;
+        if(own(mid)===col) continue;
+        if(b[lr][lc]!==0) continue;
+        out.push({from:{r,c}, to:{r:lr,c:lc}, captures:[{r:mr,c:mc}]});
+      }
+    }
+    return out;
+  }
+
+  // if mustChain, only capture moves for that piece
+  if(mustChain){
+    return capsFrom(mustChain.r, mustChain.c);
+  }
+
+  // mandatory capture
+  const allCaps=[];
+  for(let r=0;r<BOARD_SIZE;r++){
+    for(let c=0;c<BOARD_SIZE;c++){
+      const p=b[r][c];
+      if(p===0) continue;
+      if(color===RED && !isR(p)) continue;
+      if(color===BLACK && !isB(p)) continue;
+      const ms=capsFrom(r,c);
+      for(const m of ms) allCaps.push(m);
+    }
+  }
+  if(allCaps.length) return allCaps;
+
+  const all=[];
+  for(let r=0;r<BOARD_SIZE;r++){
+    for(let c=0;c<BOARD_SIZE;c++){
+      const p=b[r][c];
+      if(p===0) continue;
+      if(color===RED && !isR(p)) continue;
+      if(color===BLACK && !isB(p)) continue;
+      const ms=quietFrom(r,c);
+      for(const m of ms) all.push(m);
+    }
+  }
+  return all;
+}
+
+function applyMoveOnBoard(b, move){
+  const nb = b.map(row=>row.slice());
+  const p = nb[move.from.r][move.from.c];
+  nb[move.from.r][move.from.c]=0;
+  nb[move.to.r][move.to.c]=p;
+  if(move.captures && move.captures.length){
+    for(const cap of move.captures){
+      nb[cap.r][cap.c]=0;
+    }
+  }
+  // promotion
+  const moved = nb[move.to.r][move.to.c];
+  if(moved===1 && move.to.r===0) nb[move.to.r][move.to.c]=3;
+  if(moved===2 && move.to.r===BOARD_SIZE-1) nb[move.to.r][move.to.c]=4;
+  return nb;
+}
+
+function aiMakeMove(){
+  // AI plays aiSide
+  const depth = aiDepth();
+  const color = aiSide;
+
+  // If chain forced in real game, AI must continue with that piece
+  const mustChain = mustContinueChain;
+
+  const moves = getMovesForColorOnBoard(board, color, mustChain);
+  if(!moves.length) return;
+
+  // minimax with alpha-beta
+  function minimax(b, turnColor, d, alpha, beta, chainPiece=null){
+    const winner = winnerOnBoard(b);
+    if(winner){
+      // big scores
+      if(winner===RED) return 99999;
+      return -99999;
+    }
+    if(d===0){
+      return evaluateBoard(b);
+    }
+
+    const movesHere = getMovesForColorOnBoard(b, turnColor, chainPiece);
+    if(!movesHere.length){
+      // no moves = lose
+      if(turnColor===RED) return -99999;
+      return 99999;
+    }
+
+    const maximizing = (turnColor===RED);
+
+    if(maximizing){
+      let best=-Infinity;
+      for(const m of movesHere){
+        const nb = applyMoveOnBoard(b,m);
+
+        // if capture, check chain for same piece
+        let nextChain=null;
+        if(m.captures && m.captures.length){
+          const caps = getMovesForColorOnBoard(nb, turnColor, {r:m.to.r, c:m.to.c});
+          if(caps.length) nextChain = {r:m.to.r, c:m.to.c};
+        }
+
+        const nextTurn = nextChain ? turnColor : (turnColor===RED?BLACK:RED);
+        const score = minimax(nb, nextTurn, d-1, alpha, beta, nextChain);
+
+        best = Math.max(best, score);
+        alpha = Math.max(alpha, best);
+        if(beta<=alpha) break;
+      }
+      return best;
+    }else{
+      let best=Infinity;
+      for(const m of movesHere){
+        const nb = applyMoveOnBoard(b,m);
+
+        let nextChain=null;
+        if(m.captures && m.captures.length){
+          const caps = getMovesForColorOnBoard(nb, turnColor, {r:m.to.r, c:m.to.c});
+          if(caps.length) nextChain = {r:m.to.r, c:m.to.c};
+        }
+
+        const nextTurn = nextChain ? turnColor : (turnColor===RED?BLACK:RED);
+        const score = minimax(nb, nextTurn, d-1, alpha, beta, nextChain);
+
+        best = Math.min(best, score);
+        beta = Math.min(beta, best);
+        if(beta<=alpha) break;
+      }
+      return best;
+    }
+  }
+
+  function winnerOnBoard(b){
+    let r=0, bl=0;
+    for(let i=0;i<BOARD_SIZE;i++){
+      for(let j=0;j<BOARD_SIZE;j++){
+        const p=b[i][j];
+        if(p===1||p===3) r++;
+        else if(p===2||p===4) bl++;
+      }
+    }
+    if(r===0) return BLACK;
+    if(bl===0) return RED;
+
+    const rm = getMovesForColorOnBoard(b, RED, null).length;
+    const bm = getMovesForColorOnBoard(b, BLACK, null).length;
+    if(rm===0) return BLACK;
+    if(bm===0) return RED;
+    return null;
+  }
+
+  let bestMove = null;
+  let bestScore = (color===RED) ? -Infinity : Infinity;
+
+  // Legendary: add small randomness only if equal
+  const noise = (aiDifficultyEl.value==="legendary") ? 0.03 : 0.0;
+
+  for(const m of moves){
+    const nb = applyMoveOnBoard(board, m);
+
+    let nextChain=null;
+    if(m.captures && m.captures.length){
+      const caps = getMovesForColorOnBoard(nb, color, {r:m.to.r, c:m.to.c});
+      if(caps.length) nextChain = {r:m.to.r, c:m.to.c};
+    }
+
+    const nextTurn = nextChain ? color : (color===RED?BLACK:RED);
+    const score = minimax(nb, nextTurn, depth-1, -Infinity, Infinity, nextChain) + (Math.random()*noise);
+
+    if(color===RED){
+      if(score>bestScore){ bestScore=score; bestMove=m; }
+    }else{
+      if(score<bestScore){ bestScore=score; bestMove=m; }
+    }
+  }
+
+  if(!bestMove) bestMove = moves[Math.floor(Math.random()*moves.length)];
+
+  // Apply to real board
+  const didCapture = applyMove(bestMove, true);
+
+  if(didCapture){
+    const nextCaps = getCaptureMovesForChainAt(bestMove.to.r, bestMove.to.c);
+    if(nextCaps.length){
+      // AI continues chain (this is where your old AI got stuck)
+      mustContinueChain = {r:bestMove.to.r, c:bestMove.to.c};
+      selected = {r:bestMove.to.r, c:bestMove.to.c};
+      legalMoves = nextCaps;
+      render();
+      // continue
+      setTimeout(()=> aiMakeMove(), 220);
       return;
     }
+  }
 
-    // Fix board safely
-    board = normalizeBoard(data.game.board);
-    turn = data.game.turn === "black" ? "black" : "red";
-    mustContinueChain = !!data.game.mustContinueChain;
+  mustContinueChain = null;
+  selected = null;
+  legalMoves = [];
+  turn = (turn===RED) ? BLACK : RED;
 
-    selected = null;
-    legalMoves = [];
+  const winner = checkWinner();
+  if(winner){
+    setMessage(`${winner.toUpperCase()} wins!`);
+    playSfx(sfxWin);
+  }else{
+    setMessage("");
+  }
 
-    updateTurnLabel();
-
-    if (data.game.winner) {
-      setMessage(data.game.winner + " wins!");
-    } else if (!onlineReady) {
-      setMessage("Waiting for player...");
-    } else if (playerRole !== turn) {
-      setMessage("Opponent's turn...");
-    } else {
-      setMessage("");
-    }
-
-    render();
-  });
+  render();
 }
 
-// Create Room
-createRoomBtn.addEventListener("click", async () => {
-  online = true;
-  mode = "2p";
-  modeBtn.textContent = "Mode: 2 Player";
-
+// ---------- Buttons ----------
+restartBtn.addEventListener("click", ()=>{
+  if(online){
+    if(!roomId) return;
+    initBoard();
+    pushGameState();
+    return;
+  }
   initBoard();
+  render();
 
-  roomId = Math.random().toString(36).slice(2, 8).toUpperCase();
-  playerRole = "red";
-  onlineReady = false;
-
-  const ref = db.ref("rooms/" + roomId);
-
-  await ref.set({
-    createdAt: Date.now(),
-    players: { red: true, black: false },
-    game: {
-      board,
-      turn,
-      mustContinueChain: false,
-      winner: null
-    }
-  });
-
-  listenToRoom(roomId);
-  updateTurnLabel();
-
-  setMessage("Waiting for player...");
-  alert("Room created! Code: " + roomId);
+  if(mode==="ai" && turn===aiSide){
+    setTimeout(()=> aiMakeMove(), 250);
+  }
 });
 
-// Join Room
-joinRoomBtn.addEventListener("click", async () => {
-  const code = prompt("Enter room code:");
-  if (!code) return;
-
-  online = true;
-  mode = "2p";
-  modeBtn.textContent = "Mode: 2 Player";
-
-  roomId = code.trim().toUpperCase();
-  const ref = db.ref("rooms/" + roomId);
-
-  const snap = await ref.get();
-  if (!snap.exists()) {
-    alert("Room not found.");
-    online = false;
-    roomId = null;
+modeBtn.addEventListener("click", ()=>{
+  if(online){
+    alert("Online mode disables AI mode.");
     return;
   }
-
-  const data = snap.val();
-
-  if (data.players?.black === false) {
-    playerRole = "black";
-    await ref.child("players/black").set(true);
-  } else {
-    alert("Room is full.");
-    online = false;
-    roomId = null;
-    return;
-  }
-
-  listenToRoom(roomId);
-  updateTurnLabel();
+  mode = (mode==="2p") ? "ai" : "2p";
+  modeBtn.textContent = (mode==="ai") ? "Mode: AI" : "Mode: 2 Player";
   setMessage("");
-});
+  render();
 
-// ---------------- AI ----------------
-
-function maybeAIMove() {
-  if (online) return;
-  if (mode !== "ai") return;
-  if (turn !== aiColor) return;
-  if (isGameOver(turn)) return;
-
-  setTimeout(() => aiMakeMove(), 350);
-}
-
-function aiMakeMove() {
-  const actions = getAllActionsFor(aiColor);
-  if (!actions.length) return;
-
-  let chosen;
-  if (aiDifficulty === "easy") {
-    chosen = actions[Math.floor(Math.random() * actions.length)];
-  } else if (aiDifficulty === "medium") {
-    chosen = pickMediumMove(actions);
-  } else {
-    chosen = pickHardMove(actions);
-  }
-
-  applyMove(chosen.from.r, chosen.from.c, chosen.move);
-}
-
-function getAllActionsFor(color) {
-  const { movesByFrom } = getAllMovesFor(color);
-  const actions = [];
-
-  for (const [k, moves] of movesByFrom.entries()) {
-    const [r, c] = k.split(",").map(Number);
-    for (const m of moves) actions.push({ from: { r, c }, move: m });
-  }
-  return actions;
-}
-
-function pickMediumMove(actions) {
-  let best = null;
-  let bestScore = -999999;
-
-  for (const a of actions) {
-    const score = scoreMove(a);
-    if (score > bestScore) {
-      bestScore = score;
-      best = a;
-    }
-  }
-  return best || actions[Math.floor(Math.random() * actions.length)];
-}
-
-function scoreMove(action) {
-  const { from, move } = action;
-  const piece = board[from.r][from.c];
-  let score = 0;
-
-  if (move.capture) score += 50;
-
-  if (!piece.king) {
-    if (piece.color === "black" && move.to.r === SIZE - 1) score += 30;
-    if (piece.color === "red" && move.to.r === 0) score += 30;
-  }
-
-  return score;
-}
-
-// -------- HARD AI (Minimax + alpha-beta) --------
-
-function pickHardMove(actions) {
-  const depth = 5;
-  let best = null;
-  let bestScore = -Infinity;
-
-  for (const a of actions) {
-    const snapshot = deepCopy(board);
-
-    simulateMove(a.from, a.move);
-    const score = minimax(depth - 1, false, -Infinity, Infinity);
-
-    board = snapshot;
-
-    if (score > bestScore) {
-      bestScore = score;
-      best = a;
-    }
-  }
-
-  return best || actions[Math.floor(Math.random() * actions.length)];
-}
-
-function minimax(depth, maximizing, alpha, beta) {
-  if (depth === 0) return evaluateBoard(aiColor);
-
-  const current = maximizing ? aiColor : (aiColor === "red" ? "black" : "red");
-  const actions = getAllActionsFor(current);
-
-  if (!actions.length) return maximizing ? -9999 : 9999;
-
-  if (maximizing) {
-    let best = -Infinity;
-    for (const a of actions) {
-      const snapshot = deepCopy(board);
-      simulateMove(a.from, a.move);
-      const score = minimax(depth - 1, false, alpha, beta);
-      board = snapshot;
-
-      best = Math.max(best, score);
-      alpha = Math.max(alpha, score);
-      if (beta <= alpha) break;
-    }
-    return best;
-  } else {
-    let best = Infinity;
-    for (const a of actions) {
-      const snapshot = deepCopy(board);
-      simulateMove(a.from, a.move);
-      const score = minimax(depth - 1, true, alpha, beta);
-      board = snapshot;
-
-      best = Math.min(best, score);
-      beta = Math.min(beta, score);
-      if (beta <= alpha) break;
-    }
-    return best;
-  }
-}
-
-function simulateMove(from, move) {
-  const piece = board[from.r][from.c];
-  board[from.r][from.c] = null;
-  board[move.to.r][move.to.c] = piece;
-
-  if (move.capture) board[move.capture.r][move.capture.c] = null;
-
-  if (!piece.king) {
-    if (piece.color === "red" && move.to.r === 0) piece.king = true;
-    if (piece.color === "black" && move.to.r === SIZE - 1) piece.king = true;
-  }
-}
-
-function deepCopy(obj) {
-  return JSON.parse(JSON.stringify(obj));
-}
-
-function evaluateBoard(perspectiveColor) {
-  let score = 0;
-
-  for (let r = 0; r < SIZE; r++) {
-    for (let c = 0; c < SIZE; c++) {
-      const p = board[r][c];
-      if (!p) continue;
-
-      let val = p.king ? 5 : 3;
-
-      if (c >= 2 && c <= 5) val += 0.3;
-
-      if (!p.king) {
-        if (p.color === "black") val += r * 0.15;
-        if (p.color === "red") val += (7 - r) * 0.15;
-      }
-
-      if (p.color === perspectiveColor) score += val;
-      else score -= val;
-    }
-  }
-
-  return score;
-}
-
-// ---------------- UI ----------------
-
-restartBtn.addEventListener("click", () => {
-  initBoard();
-
-  if (online && roomId) {
-    db.ref("rooms/" + roomId + "/game").set({
-      board,
-      turn,
-      mustContinueChain: false,
-      winner: null
-    });
+  if(mode==="ai" && turn===aiSide){
+    setTimeout(()=> aiMakeMove(), 250);
   }
 });
 
-modeBtn.addEventListener("click", () => {
-  if (online) {
-    alert("AI is disabled while playing online.");
+aiDifficultyEl.addEventListener("change", ()=>{
+  if(mode!=="ai") return;
+  updateTurnLabel();
+});
+
+createRoomBtn.addEventListener("click", ()=>{
+  if(online){
+    alert("You are already in an online room.");
     return;
   }
-
-  if (mode === "2p") {
-    mode = "ai";
-    aiDifficulty = "hard";
-    modeBtn.textContent = "Mode: AI (Hard)";
-  } else {
-    mode = "2p";
-    modeBtn.textContent = "Mode: 2 Player";
-  }
-
-  updateTurnLabel();
-  initBoard();
+  createRoom();
 });
 
-// ---------------- Start ----------------
-initBoard();
+joinRoomBtn.addEventListener("click", ()=>{
+  if(online){
+    alert("You are already in an online room.");
+    return;
+  }
+  joinRoom();
+});
+
+// ---------- Boot ----------
+function boot(){
+  initBoard();
+  buildBoardUI();
+  render();
+
+  if(!db){
+    setMessage("Firebase not connected (offline play still works).");
+  }
+}
+
+boot();
