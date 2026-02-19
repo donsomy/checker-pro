@@ -649,7 +649,8 @@ function aiDepth(){
   const d = aiDifficultyEl.value;
   if(d==="easy") return 2;
   if(d==="hard") return 4;
-  return 6; // legendary
+   if(d==="legendary") return 7;
+  return 4; // legendary
 }
 
 function evaluateBoard(b){
@@ -802,16 +803,33 @@ function applyMoveOnBoard(b, move){
 }
 
 function aiMakeMove(){
-  // AI plays aiSide
-  const depth = aiDepth();
-  const color = aiSide;
+function aiMakeMove(){
 
-  // If chain forced in real game, AI must continue with that piece
-  const mustChain = mustContinueChain;
+  const status = document.getElementById("aiStatus");
 
-  const moves = getMovesForColorOnBoard(board, color, mustChain);
-  if(!moves.length) return;
+  status.textContent = "AI thinking...";
+  status.classList.add("ai-thinking");
 
+  setTimeout(() => {
+
+    // === ORIGINAL AI CODE STARTS HERE ===
+    const depth = aiDepth();
+    const color = aiSide;
+    const mustChain = mustContinueChain;
+
+    const moves = getMovesForColorOnBoard(board, color, mustChain);
+    if(!moves.length){
+      status.textContent = "";
+      status.classList.remove("ai-thinking");
+      return;
+       status.textContent = "";
+    status.classList.remove("ai-thinking");
+
+  }, 900); // delay (800–1200 feels human)
+}
+    }
+
+    // rest of your minimax logic continues...
   // minimax with alpha-beta
   function minimax(b, turnColor, d, alpha, beta, chainPiece=null){
     const winner = winnerOnBoard(b);
