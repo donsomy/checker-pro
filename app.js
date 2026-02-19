@@ -431,10 +431,17 @@ function onSquareClick(e){
 
   // If chain forced, only allow selecting that piece
   if(mustContinueChain){
-    if(r!==mustContinueChain.r || c!==mustContinueChain.c){
-      return;
-    }
-  }
+// allow clicking destination squares too
+const isChainPiece = (r===mustContinueChain.r && c===mustContinueChain.c);
+
+// if clicked somewhere else, only allow it if it's a legal destination
+if(!isChainPiece){
+if(!selected) return;
+const isLegalDest = legalMoves.some(m => m.to.r===r && m.to.c===c);
+if(!isLegalDest) return;
+}
+}
+
 
   // Select if clicking own piece
   if(p!==0 && color===turn){
