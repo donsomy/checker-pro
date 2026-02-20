@@ -810,87 +810,78 @@ function applyMoveOnBoard(b, move){
 }
 
 function aiMakeMove() {
-  // Show thinking animation immediately
-  showAITinking();
+  // 1. Immediately show the thinking indicator
+  showAIThinking();
 
-   // Hesitation: random delay before starting to "think" (makes it feel less robotic)
-  const initialHesitation = 400 + Math.random() * 800; // 400-1200ms
+  // 2. Add a small random "hesitation" delay before starting heavy computation
+  //    → makes it feel like the AI is "considering options" first
+  const hesitationMs = 600 + Math.random() * 1200; // between 0.6 and 1.8 seconds
+
   setTimeout(() => {
+    // ── All the real AI thinking starts here ──────────────────────────────
 
-  // AI plays aiSide
-  const depth = aiDepth();
-  const color = aiSide;
+    const depth = aiDepth();
+    const color = aiSide;
+    const mustChain = mustContinueChain;
 
-  // If chain forced in real game, AI must continue with that piece
-  const mustChain = mustContinueChain;
-
-  const moves = getMovesForColorOnBoard(board, color, mustChain);
-  if (!moves.length) {
-    hideAIThinking();
-    return;
-  }
-
-  // minimax with alpha-beta
-  function minimax(b, turnColor, d, alpha, beta, chainPiece = null) {
-    const winner = winnerOnBoard(b);
-    if (winner) {
-      // big scores
-      if (winner === RED) return 99999;
-      return -99999;
-    }
-    if (d === 0) {
-      return evaluateBoard(b);
+    const moves = getMovesForColorOnBoard(board, color, mustChain);
+    if (!moves.length) {
+      hideAIThinking();
+      return;
     }
 
-    const movesHere = getMovesForColorOnBoard(b, turnColor, chainPiece);
-    if (!movesHere.length) {
-      // no moves = lose
-      if (turnColor === RED) return -99999;
-      return 99999;
-    }
-
-    const maximizing = (turnColor === RED);
-
-    if (maximizing) {
-      let best = -Infinity;
-      for (const m of movesHere) {
-        const nb = applyMoveOnBoard(b, m);
-
-        // if capture, check chain for same piece
-        let nextChain = null;
-        if (m.captures && m.captures.length) {
-          const caps = getMovesForColorOnBoard(nb, turnColor, { r: m.to.r, c: m.to.c });
-          if (caps.length) nextChain = { r: m.to.r, c: m.to.c };
-        }
-
-        const nextTurn = nextChain ? turnColor : (turnColor === RED ? BLACK : RED);
-        const score = minimax(nb, nextTurn, d - 1, alpha, beta, nextChain);
-
-        best = Math.max(best, score);
-        alpha = Math.max(alpha, best);
-        if (beta <= alpha) break;
+    // minimax with alpha-beta
+    function minimax(b, turnColor, d, alpha, beta, chainPiece = null) {
+      const winner = winnerOnBoard(b);
+      if (winner) {
+        if (winner === RED) return 99999;
+        return -99999;
       }
-      return best;
-    } else {
-      let best = Infinity;
-      for (const m of movesHere) {
-        const nb = applyMoveOnBoard(b, m);
-
-        let nextChain = null;
-        if (m.captures && m.captures.length) {
-          const caps = getMovesForColorOnBoard(nb, turnColor, { r: m.to.r, c: m.to.c });
-          if (caps.length) nextChain = { r: m.to.r, c: m.to.c };
-        }
-
-        const nextTurn = nextChain ? turnColor : (turnColor === RED ? BLACK : RED);
-        const score = minimax(nb, nextTurn, d - 1, alpha, beta, nextChain);
-
-        best = Math.min(best, score);
-        beta = Math.min(beta, best);
-        if (beta <= alpha) break;
+      if (d === 0) {
+        return evaluateBoard(b);
       }
-      return best;
-    }
+
+      const movesHere = getMovesForColorOnBoard(b, turnColor, chainPiece);
+      if (!movesHere.length) {
+        if (turnColor === RED) return -99999;
+        return 99999;
+      }
+
+      const maximizing = (turnColor === RED);
+
+      if (maximizing) {
+        let best = -Infinity;
+        for (const m of movesHere) {
+          const nb = applyMoveOnBoard(b, m);
+          let nextChain = null;
+          if (m.captures && m.captures.length) {
+            const caps = getMovesForColorOnBoard(nb, turnColor, { r: m.to.r, c: m.to.c });
+            if (caps.length) nextChain = { r: m.to.r, c: m.to.c };
+          }
+          const nextTurn = nextChain ? turnColor : (turnColor === RED ? BLACK : RED);
+          const score = minimax(nb, nextTurn, d - 1, alpha, beta, nextChain);
+          best = Math.max(best, score);
+          alpha = Math.max(alpha, best);
+          if (beta <= alpha) break;
+        }
+        return best;
+      } else {
+        let best = Infinity;
+        for (const m of movesHere) {
+          const nb = applyMoveOnBoard(b, m);
+          let nextChain = null;
+          if (m.captures && m.captures.length) {
+            const caps = getMovesForColorOnBoard(nb, turnColor, { r: m.to.r, c: m.to.c });
+            if (caps.length) nextChain = { r: m.to.r, c: m.to.c };
+          }
+          const nextTurn = nextChain ? turnColor : (turnColor === RED ? BLACK : RED);
+          const score = minimax(nb, nextTurn, d - 1, alpha, beta, nextChain);
+          best = Math.min(best, score);
+          beta = Math.min(beta, best);
+          if (beta <= alpha) break;
+        }
+        return best;
+      }
     }
 
   function winnerOnBoard(b){
@@ -950,9 +941,11 @@ function aiMakeMove() {
       selected = {r:bestMove.to.r, c:bestMove.to.c};
       legalMoves = nextCaps;
       render();
+       hideAIThinking();     // hide before recursive call
       // continue
-      setTimeout(()=> aiMakeMove(), 220);
-      return;
+      setTimeout(()=> aiMakeMove(), 300 + 
+      return;Math.random() * 400); // small delay between chain jumps
+        return;
     }
   }
 
@@ -971,7 +964,9 @@ function aiMakeMove() {
 
   render();
    // Always hide thinking when Ai move is complete 
-   hideAIThinking
+   hideAIThinking();
+
+  }, hesitationMs);
 }
 
 // ---------- Buttons ----------
