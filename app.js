@@ -813,6 +813,10 @@ function aiMakeMove() {
   // Show thinking animation immediately
   showAITinking();
 
+   // Hesitation: random delay before starting to "think" (makes it feel less robotic)
+  const initialHesitation = 400 + Math.random() * 800; // 400-1200ms
+  setTimeout(() => {
+
   // AI plays aiSide
   const depth = aiDepth();
   const color = aiSide;
