@@ -247,3 +247,14 @@ body{
   from { transform: rotate(0deg); }
   to { transform: rotate(360deg); }
 }
+.capture-glow {
+box-shadow: 0 0 12px rgba(255, 215, 0, 0.8);
+animation: capturePulse 1s infinite;
+border-radius: 50%;
+}
+
+@keyframes capturePulse {
+0% { box-shadow: 0 0 6px rgba(255,215,0,0.5); }
+50% { box-shadow: 0 0 16px rgba(255,215,0,1); }
+100% { box-shadow: 0 0 6px rgba(255,215,0,0.5); }
+}
