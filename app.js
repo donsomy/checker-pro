@@ -809,7 +809,7 @@ function applyMoveOnBoard(b, move){
   return nb;
 }
 
-function aiMakeMove() {
+ function aiMakeMove() {
   // 1. Immediately show the thinking indicator
   showAIThinking();
 
@@ -884,90 +884,66 @@ function aiMakeMove() {
       }
     }
 
-  function winnerOnBoard(b){
-    let r=0, bl=0;
-    for(let i=0;i<BOARD_SIZE;i++){
-      for(let j=0;j<BOARD_SIZE;j++){
-        const p=b[i][j];
-        if(p===1||p===3) r++;
-        else if(p===2||p===4) bl++;
+    let bestMove = null;
+    let bestScore = (color === RED) ? -Infinity : Infinity;
+
+    const noise = (aiDifficultyEl.value === "legendary") ? 0.03 : 0.0;
+
+    for (const m of moves) {
+      const nb = applyMoveOnBoard(board, m);
+      let nextChain = null;
+      if (m.captures && m.captures.length) {
+        const caps = getMovesForColorOnBoard(nb, color, { r: m.to.r, c: m.to.c });
+        if (caps.length) nextChain = { r: m.to.r, c: m.to.c };
+      }
+      const nextTurn = nextChain ? color : (color === RED ? BLACK : RED);
+      const score = minimax(nb, nextTurn, depth - 1, -Infinity, Infinity, nextChain) + (Math.random() * noise);
+
+      if (color === RED) {
+        if (score > bestScore) { bestScore = score; bestMove = m; }
+      } else {
+        if (score < bestScore) { bestScore = score; bestMove = m; }
       }
     }
-    if(r===0) return BLACK;
-    if(bl===0) return RED;
 
-    const rm = getMovesForColorOnBoard(b, RED, null).length;
-    const bm = getMovesForColorOnBoard(b, BLACK, null).length;
-    if(rm===0) return BLACK;
-    if(bm===0) return RED;
-    return null;
-  }
+    if (!bestMove) bestMove = moves[Math.floor(Math.random() * moves.length)];
 
-  let bestMove = null;
-  let bestScore = (color===RED) ? -Infinity : Infinity;
+    // Apply the chosen move
+    const didCapture = applyMove(bestMove, true);
 
-  // Legendary: add small randomness only if equal
-  const noise = (aiDifficultyEl.value==="legendary") ? 0.03 : 0.0;
-
-  for(const m of moves){
-    const nb = applyMoveOnBoard(board, m);
-
-    let nextChain=null;
-    if(m.captures && m.captures.length){
-      const caps = getMovesForColorOnBoard(nb, color, {r:m.to.r, c:m.to.c});
-      if(caps.length) nextChain = {r:m.to.r, c:m.to.c};
-    }
-
-    const nextTurn = nextChain ? color : (color===RED?BLACK:RED);
-    const score = minimax(nb, nextTurn, depth-1, -Infinity, Infinity, nextChain) + (Math.random()*noise);
-
-    if(color===RED){
-      if(score>bestScore){ bestScore=score; bestMove=m; }
-    }else{
-      if(score<bestScore){ bestScore=score; bestMove=m; }
-    }
-  }
-
-  if(!bestMove) bestMove = moves[Math.floor(Math.random()*moves.length)];
-
-  // Apply to real board
-  const didCapture = applyMove(bestMove, true);
-
-  if(didCapture){
-    const nextCaps = getCaptureMovesForChainAt(bestMove.to.r, bestMove.to.c);
-    if(nextCaps.length){
-      // AI continues chain (this is where your old AI got stuck)
-      mustContinueChain = {r:bestMove.to.r, c:bestMove.to.c};
-      selected = {r:bestMove.to.r, c:bestMove.to.c};
-      legalMoves = nextCaps;
-      render();
-       hideAIThinking();     // hide before recursive call
-      // continue
-      setTimeout(()=> aiMakeMove(), 300 + 
-      return;Math.random() * 400); // small delay between chain jumps
+    if (didCapture) {
+      const nextCaps = getCaptureMovesForChainAt(bestMove.to.r, bestMove.to.c);
+      if (nextCaps.length) {
+        mustContinueChain = { r: bestMove.to.r, c: bestMove.to.c };
+        selected = { r: bestMove.to.r, c: bestMove.to.c };
+        legalMoves = nextCaps;
+        render();
+        hideAIThinking();           // hide before recursive call
+        setTimeout(() => aiMakeMove(), 300 + Math.random() * 400); // small delay between chain jumps
         return;
+      }
     }
-  }
 
-  mustContinueChain = null;
-  selected = null;
-  legalMoves = [];
-  turn = (turn===RED) ? BLACK : RED;
+    mustContinueChain = null;
+    selected = null;
+    legalMoves = [];
+    turn = (turn === RED) ? BLACK : RED;
 
-  const winner = checkWinner();
-  if(winner){
-    setMessage(`${winner.toUpperCase()} wins!`);
-    playSfx(sfxWin);
-  }else{
-    setMessage("");
-  }
+    const winner = checkWinner();
+    if (winner) {
+      setMessage(`${winner.toUpperCase()} wins!`);
+      playSfx(sfxWin);
+    } else {
+      setMessage("");
+    }
 
-  render();
-   // Always hide thinking when Ai move is complete 
-   hideAIThinking();
+    render();
+
+    // 3. Hide thinking when everything is done
+    hideAIThinking();
 
   }, hesitationMs);
-}
+               }
 
 // ---------- Buttons ----------
 restartBtn.addEventListener("click", ()=>{
