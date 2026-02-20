@@ -13,7 +13,10 @@ function showAITinking() {
   setMessage("AI thinking");
   messageEl.classList.add("thinking");
 }
-
+function hasCaptureFrom(r, c){
+const caps = getCaptureMovesForChainAt(r, c);
+return caps && caps.length > 0;
+}
 function hideAIThinking() {
   messageEl.classList.remove("thinking");
   setMessage(""); // or keep previous message if you want
@@ -195,6 +198,9 @@ function render(){
       if(p===0) continue;
       const sq = getSquareEl(r,c);
       const piece = document.createElement("div");
+       if(hasCaptureFrom(r, c)){
+pieceEl.classList.add("capture-glow");
+}
       piece.className = "piece " + (isRed(p) ? "red" : "black");
       if(isKing(p)) piece.classList.add("king");
       sq.appendChild(piece);
