@@ -811,21 +811,25 @@ function applyMoveOnBoard(b, move){
 
  function aiMakeMove() {
   // 1. Immediately show the thinking indicator
+    console.log("[AI] aiMakeMove() called — turn:", turn, "mode:", mode, "aiSide:", aiSide);
   showAIThinking();
 
   // 2. Add a small random "hesitation" delay before starting heavy computation
   //    → makes it feel like the AI is "considering options" first
   const hesitationMs = 600 + Math.random() * 1200; // between 0.6 and 1.8 seconds
-
+console.log("[AI] Starting hesitation delay of", hesitationMs, "ms");
   setTimeout(() => {
+     console.log("[AI] Hesitation finished — starting real calculation");
     // ── All the real AI thinking starts here ──────────────────────────────
 
     const depth = aiDepth();
+     console.log("[AI] Depth:", depth, "color:", color);
     const color = aiSide;
     const mustChain = mustContinueChain;
 
     const moves = getMovesForColorOnBoard(board, color, mustChain);
     if (!moves.length) {
+       console.log("[AI] No moves — exiting early");
       hideAIThinking();
       return;
     }
@@ -924,7 +928,7 @@ function applyMoveOnBoard(b, move){
     }
 
     if (!bestMove) bestMove = moves[Math.floor(Math.random() * moves.length)];
-
+    console.log("[AI] Chosen best move:", bestMove);
     // Apply the chosen move
     const didCapture = applyMove(bestMove, true);
 
@@ -934,6 +938,7 @@ function applyMoveOnBoard(b, move){
         mustContinueChain = { r: bestMove.to.r, c: bestMove.to.c };
         selected = { r: bestMove.to.r, c: bestMove.to.c };
         legalMoves = nextCaps;
+         console.log("[AI] Move applied, didCapture:", didCapture);
         render();
         hideAIThinking();           // hide before recursive call
         setTimeout(() => aiMakeMove(), 300 + Math.random() * 400); // small delay between chain jumps
@@ -955,7 +960,7 @@ function applyMoveOnBoard(b, move){
     }
 
     render();
-
+console.log("[AI] Finished move — hiding thinking");
     // 3. Hide thinking when everything is done
     hideAIThinking();
 
