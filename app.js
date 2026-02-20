@@ -810,26 +810,23 @@ function applyMoveOnBoard(b, move){
 }
 
  function aiMakeMove() {
-  // 1. Immediately show the thinking indicator
-    console.log("[AI] aiMakeMove() called — turn:", turn, "mode:", mode, "aiSide:", aiSide);
+  // ── 1. Show thinking animation right away ────────────────────────────────
   showAIThinking();
 
-  // 2. Add a small random "hesitation" delay before starting heavy computation
-  //    → makes it feel like the AI is "considering options" first
-  const hesitationMs = 600 + Math.random() * 1200; // between 0.6 and 1.8 seconds
-console.log("[AI] Starting hesitation delay of", hesitationMs, "ms");
+  // ── 2. Hesitation: small random delay before heavy thinking starts ────────
+  const hesitationMs = 600 + Math.random() * 1200; // 600–1800 ms
+
   setTimeout(() => {
-     console.log("[AI] Hesitation finished — starting real calculation");
-    // ── All the real AI thinking starts here ──────────────────────────────
+    // Everything below this line is the actual AI calculation
 
     const depth = aiDepth();
-     console.log("[AI] Depth:", depth, "color:", color);
     const color = aiSide;
     const mustChain = mustContinueChain;
 
     const moves = getMovesForColorOnBoard(board, color, mustChain);
+
     if (!moves.length) {
-       console.log("[AI] No moves — exiting early");
+      console.warn("[AI] No legal moves found");
       hideAIThinking();
       return;
     }
@@ -857,13 +854,16 @@ console.log("[AI] Starting hesitation delay of", hesitationMs, "ms");
         let best = -Infinity;
         for (const m of movesHere) {
           const nb = applyMoveOnBoard(b, m);
+
           let nextChain = null;
           if (m.captures && m.captures.length) {
             const caps = getMovesForColorOnBoard(nb, turnColor, { r: m.to.r, c: m.to.c });
             if (caps.length) nextChain = { r: m.to.r, c: m.to.c };
           }
+
           const nextTurn = nextChain ? turnColor : (turnColor === RED ? BLACK : RED);
           const score = minimax(nb, nextTurn, d - 1, alpha, beta, nextChain);
+
           best = Math.max(best, score);
           alpha = Math.max(alpha, best);
           if (beta <= alpha) break;
@@ -873,13 +873,16 @@ console.log("[AI] Starting hesitation delay of", hesitationMs, "ms");
         let best = Infinity;
         for (const m of movesHere) {
           const nb = applyMoveOnBoard(b, m);
+
           let nextChain = null;
           if (m.captures && m.captures.length) {
             const caps = getMovesForColorOnBoard(nb, turnColor, { r: m.to.r, c: m.to.c });
             if (caps.length) nextChain = { r: m.to.r, c: m.to.c };
           }
+
           const nextTurn = nextChain ? turnColor : (turnColor === RED ? BLACK : RED);
           const score = minimax(nb, nextTurn, d - 1, alpha, beta, nextChain);
+
           best = Math.min(best, score);
           beta = Math.min(beta, best);
           if (beta <= alpha) break;
@@ -887,65 +890,65 @@ console.log("[AI] Starting hesitation delay of", hesitationMs, "ms");
         return best;
       }
     }
-    function winnerOnBoard(b){
-    let r=0, bl=0;
-    for(let i=0;i<BOARD_SIZE;i++){
-      for(let j=0;j<BOARD_SIZE;j++){
-        const p=b[i][j];
-        if(p===1||p===3) r++;
-        else if(p===2||p===4) bl++;
-      }
-    }
-    if(r===0) return BLACK;
-    if(bl===0) return RED;
 
-    const rm = getMovesForColorOnBoard(b, RED, null).length;
-    const bm = getMovesForColorOnBoard(b, BLACK, null).length;
-    if(rm===0) return BLACK;
-    if(bm===0) return RED;
-    return null;
-    }
     let bestMove = null;
     let bestScore = (color === RED) ? -Infinity : Infinity;
 
+    // Legendary: small randomness only when scores are equal
     const noise = (aiDifficultyEl.value === "legendary") ? 0.03 : 0.0;
 
     for (const m of moves) {
       const nb = applyMoveOnBoard(board, m);
+
       let nextChain = null;
       if (m.captures && m.captures.length) {
         const caps = getMovesForColorOnBoard(nb, color, { r: m.to.r, c: m.to.c });
         if (caps.length) nextChain = { r: m.to.r, c: m.to.c };
       }
+
       const nextTurn = nextChain ? color : (color === RED ? BLACK : RED);
       const score = minimax(nb, nextTurn, depth - 1, -Infinity, Infinity, nextChain) + (Math.random() * noise);
 
       if (color === RED) {
-        if (score > bestScore) { bestScore = score; bestMove = m; }
+        if (score > bestScore) {
+          bestScore = score;
+          bestMove = m;
+        }
       } else {
-        if (score < bestScore) { bestScore = score; bestMove = m; }
+        if (score < bestScore) {
+          bestScore = score;
+          bestMove = m;
+        }
       }
     }
 
-    if (!bestMove) bestMove = moves[Math.floor(Math.random() * moves.length)];
-    console.log("[AI] Chosen best move:", bestMove);
-    // Apply the chosen move
+    if (!bestMove) {
+      bestMove = moves[Math.floor(Math.random() * moves.length)];
+    }
+
+    // ── Apply the chosen move ───────────────────────────────────────────────
     const didCapture = applyMove(bestMove, true);
 
     if (didCapture) {
       const nextCaps = getCaptureMovesForChainAt(bestMove.to.r, bestMove.to.c);
       if (nextCaps.length) {
+        // Continue chain
         mustContinueChain = { r: bestMove.to.r, c: bestMove.to.c };
         selected = { r: bestMove.to.r, c: bestMove.to.c };
         legalMoves = nextCaps;
-         console.log("[AI] Move applied, didCapture:", didCapture);
         render();
-        hideAIThinking();           // hide before recursive call
-        setTimeout(() => aiMakeMove(), 300 + Math.random() * 400); // small delay between chain jumps
-        return;
+
+        // Small delay before next jump in chain (feels more natural)
+        const chainDelay = 400 + Math.random() * 500; // 400–900 ms
+        setTimeout(() => {
+          aiMakeMove();
+        }, chainDelay);
+
+        return; // Do NOT hide thinking yet — chain continues
       }
     }
 
+    // ── End of turn (no more chain) ────────────────────────────────────────
     mustContinueChain = null;
     selected = null;
     legalMoves = [];
@@ -960,12 +963,14 @@ console.log("[AI] Starting hesitation delay of", hesitationMs, "ms");
     }
 
     render();
-console.log("[AI] Finished move — hiding thinking");
-    // 3. Hide thinking when everything is done
+
+    // ── Only hide thinking when the full turn is finished ───────────────────
     hideAIThinking();
 
   }, hesitationMs);
-               }
+ }
+    
+    
 
 // ---------- Buttons ----------
 restartBtn.addEventListener("click", ()=>{
