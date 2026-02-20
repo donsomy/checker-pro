@@ -883,7 +883,24 @@ function applyMoveOnBoard(b, move){
         return best;
       }
     }
+    function winnerOnBoard(b){
+    let r=0, bl=0;
+    for(let i=0;i<BOARD_SIZE;i++){
+      for(let j=0;j<BOARD_SIZE;j++){
+        const p=b[i][j];
+        if(p===1||p===3) r++;
+        else if(p===2||p===4) bl++;
+      }
+    }
+    if(r===0) return BLACK;
+    if(bl===0) return RED;
 
+    const rm = getMovesForColorOnBoard(b, RED, null).length;
+    const bm = getMovesForColorOnBoard(b, BLACK, null).length;
+    if(rm===0) return BLACK;
+    if(bm===0) return RED;
+    return null;
+    }
     let bestMove = null;
     let bestScore = (color === RED) ? -Infinity : Infinity;
 
