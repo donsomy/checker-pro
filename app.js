@@ -8,7 +8,16 @@
    - AI with Easy/Hard/Legendary (minimax)
    - Online mode with Firebase Realtime DB
 */
+// Helper to show/hide thinking animation
+function showAITinking() {
+  setMessage("AI thinking");
+  messageEl.classList.add("thinking");
+}
 
+function hideAIThinking() {
+  messageEl.classList.remove("thinking");
+  setMessage(""); // or keep previous message if you want
+}
 const BOARD_SIZE = 10;
 
 // Piece encoding
@@ -800,18 +809,11 @@ function applyMoveOnBoard(b, move){
   return nb;
 }
 
-function aiMakeMove(){
+function aiMakeMove() {
+  // Show thinking animation immediately
+  showAITinking();
+
   // AI plays aiSide
-   const status = document.getElementById("aiStatus");
-
-  status.innerHTML = '<span></span>';
-  status.classList.add("ai-thinking");
-
-  setTimeout(() => {
-
-    // === Your original AI logic here ===
-
-    
   const depth = aiDepth();
   const color = aiSide;
 
@@ -819,75 +821,73 @@ function aiMakeMove(){
   const mustChain = mustContinueChain;
 
   const moves = getMovesForColorOnBoard(board, color, mustChain);
-  if(!moves.length) return;
+  if (!moves.length) {
+    hideAIThinking();
+    return;
+  }
 
   // minimax with alpha-beta
-  function minimax(b, turnColor, d, alpha, beta, chainPiece=null){
+  function minimax(b, turnColor, d, alpha, beta, chainPiece = null) {
     const winner = winnerOnBoard(b);
-    if(winner){
+    if (winner) {
       // big scores
-      if(winner===RED) return 99999;
+      if (winner === RED) return 99999;
       return -99999;
-       status.classList.remove("ai-thinking");
-    status.innerHTML = "";
-
-  }, 900);
-
     }
-    if(d===0){
+    if (d === 0) {
       return evaluateBoard(b);
     }
 
     const movesHere = getMovesForColorOnBoard(b, turnColor, chainPiece);
-    if(!movesHere.length){
+    if (!movesHere.length) {
       // no moves = lose
-      if(turnColor===RED) return -99999;
+      if (turnColor === RED) return -99999;
       return 99999;
     }
 
-    const maximizing = (turnColor===RED);
+    const maximizing = (turnColor === RED);
 
-    if(maximizing){
-      let best=-Infinity;
-      for(const m of movesHere){
-        const nb = applyMoveOnBoard(b,m);
+    if (maximizing) {
+      let best = -Infinity;
+      for (const m of movesHere) {
+        const nb = applyMoveOnBoard(b, m);
 
         // if capture, check chain for same piece
-        let nextChain=null;
-        if(m.captures && m.captures.length){
-          const caps = getMovesForColorOnBoard(nb, turnColor, {r:m.to.r, c:m.to.c});
-          if(caps.length) nextChain = {r:m.to.r, c:m.to.c};
+        let nextChain = null;
+        if (m.captures && m.captures.length) {
+          const caps = getMovesForColorOnBoard(nb, turnColor, { r: m.to.r, c: m.to.c });
+          if (caps.length) nextChain = { r: m.to.r, c: m.to.c };
         }
 
-        const nextTurn = nextChain ? turnColor : (turnColor===RED?BLACK:RED);
-        const score = minimax(nb, nextTurn, d-1, alpha, beta, nextChain);
+        const nextTurn = nextChain ? turnColor : (turnColor === RED ? BLACK : RED);
+        const score = minimax(nb, nextTurn, d - 1, alpha, beta, nextChain);
 
         best = Math.max(best, score);
         alpha = Math.max(alpha, best);
-        if(beta<=alpha) break;
+        if (beta <= alpha) break;
       }
       return best;
-    }else{
-      let best=Infinity;
-      for(const m of movesHere){
-        const nb = applyMoveOnBoard(b,m);
+    } else {
+      let best = Infinity;
+      for (const m of movesHere) {
+        const nb = applyMoveOnBoard(b, m);
 
-        let nextChain=null;
-        if(m.captures && m.captures.length){
-          const caps = getMovesForColorOnBoard(nb, turnColor, {r:m.to.r, c:m.to.c});
-          if(caps.length) nextChain = {r:m.to.r, c:m.to.c};
+        let nextChain = null;
+        if (m.captures && m.captures.length) {
+          const caps = getMovesForColorOnBoard(nb, turnColor, { r: m.to.r, c: m.to.c });
+          if (caps.length) nextChain = { r: m.to.r, c: m.to.c };
         }
 
-        const nextTurn = nextChain ? turnColor : (turnColor===RED?BLACK:RED);
-        const score = minimax(nb, nextTurn, d-1, alpha, beta, nextChain);
+        const nextTurn = nextChain ? turnColor : (turnColor === RED ? BLACK : RED);
+        const score = minimax(nb, nextTurn, d - 1, alpha, beta, nextChain);
 
         best = Math.min(best, score);
         beta = Math.min(beta, best);
-        if(beta<=alpha) break;
+        if (beta <= alpha) break;
       }
       return best;
     }
-  }
+    }
 
   function winnerOnBoard(b){
     let r=0, bl=0;
@@ -966,6 +966,8 @@ function aiMakeMove(){
   }
 
   render();
+   // Always hide thinking when Ai move is complete 
+   hideAIThinking
 }
 
 // ---------- Buttons ----------
