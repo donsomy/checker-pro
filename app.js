@@ -198,12 +198,13 @@ function render(){
       if(p===0) continue;
       const sq = getSquareEl(r,c);
       const piece = document.createElement("div");
-       if(hasCaptureFrom(r, c)){
-pieceEl.classList.add("capture-glow");
-}
+      
       piece.className = "piece " + (isRed(p) ? "red" : "black");
       if(isKing(p)) piece.classList.add("king");
       sq.appendChild(piece);
+        if(hasCaptureFrom(r, c)){
+pieceEl.classList.add("capture-glow");
+
     }
   }
 
