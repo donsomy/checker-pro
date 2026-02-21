@@ -369,8 +369,7 @@ function getAllLegalMovesFor(color){
   for(const pos of pieces){
     const moves = getQuietMovesFrom(pos.r,pos.c);
     for(const m of moves) all.push(m);
-     
-  }
+     }
   return {moves:all, forced:false};
 }
 
