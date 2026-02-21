@@ -203,7 +203,7 @@ function render(){
       if(isKing(p)) piece.classList.add("king");
       sq.appendChild(piece);
         
-       if(hasCapture(r, c)){
+       if(movesByFrom(r, c)){
 piece.classList.add("capture-glow");
       }
     }
@@ -370,8 +370,6 @@ function getAllLegalMovesFor(color){
     const moves = getQuietMovesFrom(pos.r,pos.c);
     for(const m of moves) all.push(m);
      
-
-return moves;
   }
   return {moves:all, forced:false};
 }
