@@ -200,7 +200,7 @@ function render(){
       const piece = document.createElement("div");
       if(hasCaptureFrom(r, c)){
 pieceEl.classList.add("capture-glow");
-
+      }
       piece.className = "piece " + (isRed(p) ? "red" : "black");
       if(isKing(p)) piece.classList.add("king");
       sq.appendChild(piece);
