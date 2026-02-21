@@ -362,6 +362,13 @@ function getAllCaptureMovesFor(color){
 
 function getAllLegalMovesFor(color){
   const caps = getAllCaptureMovesFor(color);
+    // Enforce highest capture rule
+const captureMoves = moves.filter(m => m.captures && m.captures.length);
+
+if(captureMoves.length){
+  const maxCap = Math.max(...captureMoves.map(m => m.captures.length));
+  return captureMoves.filter(m => m.captures.length === maxCap);
+     }
   if(caps.length>0) return {moves:caps, forced:true};
   // quiet moves
   const pieces = getAllPiecesFor(color);
@@ -369,13 +376,7 @@ function getAllLegalMovesFor(color){
   for(const pos of pieces){
     const moves = getQuietMovesFrom(pos.r,pos.c);
     for(const m of moves) all.push(m);
-     // Enforce highest capture rule
-const captureMoves = moves.filter(m => m.captures && m.captures.length);
-
-if(captureMoves.length){
-  const maxCap = Math.max(...captureMoves.map(m => m.captures.length));
-  return captureMoves.filter(m => m.captures.length === maxCap);
-     }
+  }
   return {moves:all, forced:false};
 }
 
