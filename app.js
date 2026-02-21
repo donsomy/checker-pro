@@ -368,7 +368,6 @@ const captureMoves = moves.filter(m => m.captures && m.captures.length);
 if(captureMoves.length){
   const maxCap = Math.max(...captureMoves.map(m => m.captures.length));
   return captureMoves.filter(m => m.captures.length === maxCap);
-     }
   if(caps.length>0) return {moves:caps, forced:true};
   // quiet moves
   const pieces = getAllPiecesFor(color);
