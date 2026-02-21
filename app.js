@@ -205,7 +205,7 @@ function render(){
         // ADD GLOW HERE
        // Only glow if: current turn, has capture moves available, not in chain mode
        if(hasCaptureFrom(r, c)){
-pieceEl.classList.add("capture-glow");
+piece.classList.add("capture-glow");
       }
     }
   }
