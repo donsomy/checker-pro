@@ -203,7 +203,7 @@ function render(){
       if(isKing(p)) piece.classList.add("king");
       sq.appendChild(piece);
         
-       if(hasCaptureFrom(r, c)){
+       if(hasCapture(r, c)){
 piece.classList.add("capture-glow");
       }
     }
