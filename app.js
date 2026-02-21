@@ -202,9 +202,8 @@ function render(){
       piece.className = "piece " + (isRed(p) ? "red" : "black");
       if(isKing(p)) piece.classList.add("king");
       sq.appendChild(piece);
-        // ADD GLOW HERE
-       // Only glow if: current turn, has capture moves available, not in chain mode
-       if(hasCaptureFrom(r, c)){
+        
+       if(movesByFrom(r, c)){
 piece.classList.add("capture-glow");
       }
     }
