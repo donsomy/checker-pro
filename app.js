@@ -174,6 +174,23 @@ function initBoard(){
   updateBars();
 }
 
+
+function buildBoardUI(){
+  boardEl.innerHTML = "";
+  boardEl.style.gridTemplateColumns = `repeat(${BOARD_SIZE}, 1fr)`;
+
+  for(let r=0;r<BOARD_SIZE;r++){
+    for(let c=0;c<BOARD_SIZE;c++){
+      const sq = document.createElement("div");
+      sq.className = "square " + (((r+c)%2===0) ? "light" : "dark");
+      sq.dataset.r = r;
+      sq.dataset.c = c;
+      sq.addEventListener("click", onSquareClick);
+      boardEl.appendChild(sq);
+    }
+  }
+}
+
 // ===== FORCED MOVE VISUALS =====
 function clearForcedHighlights(){
   document.querySelectorAll('.forced-piece').forEach(e=>e.classList.remove('forced-piece'));
@@ -202,22 +219,6 @@ function applyForcedVisuals(){
   highlightForcedPiece(piece);
   highlightForcedDestinations(legalMoves.map(m=>m.to));
 }
-function buildBoardUI(){
-  boardEl.innerHTML = "";
-  boardEl.style.gridTemplateColumns = `repeat(${BOARD_SIZE}, 1fr)`;
-
-  for(let r=0;r<BOARD_SIZE;r++){
-    for(let c=0;c<BOARD_SIZE;c++){
-      const sq = document.createElement("div");
-      sq.className = "square " + (((r+c)%2===0) ? "light" : "dark");
-      sq.dataset.r = r;
-      sq.dataset.c = c;
-      sq.addEventListener("click", onSquareClick);
-      boardEl.appendChild(sq);
-    }
-  }
-}
-
 function render(){
   if(!board) return;
 
@@ -414,9 +415,15 @@ function getAllLegalMovesFor(color){
   return {moves:all, forced:false};
 }
 
-// After making a capture, you must continue capturing with the same piece if possible.
 function getCaptureMovesForChainAt(r,c){
-  return getCaptureMovesFrom(r,c);
+  const moves = getCaptureMovesFrom(r,c);
+  if(!moves.length) return moves;
+
+  let max = 0;
+  for(const m of moves){
+    if(m.captures.length > max) max = m.captures.length;
+  }
+  return moves.filter(m => m.captures.length === max);
 }
 
 // ---------- Apply move ----------
@@ -501,11 +508,10 @@ if(!isLegalDest) return;
 }
 
   // Select if clicking own piece
-  if(p!==0 && color===turn){
-    selected = {r,c};
-    legalMoves = getMovesForSelection(r,c);
-    render();
-    return;
+ if(p!==0 && color===turn){
+  const forced = getMaxCaptureMoves(turn);
+  if(forced.length && !forced.some(m => m.from.r===r && m.from.c===c)){
+    return; // cannot select non-forced piece
   }
 
   // If no selection, ignore
