@@ -13,6 +13,14 @@ function showAITinking() {
   setMessage("AI thinking");
   messageEl.classList.add("thinking");
 }
+function getCaptureMovesFromBoard(b, r, c){
+  const original = board;
+  board = b;
+  const result = getCaptureMovesFrom(r,c);
+  board = original;
+  return result;
+}
+
 function hasCaptureFrom(r, c){
 const caps = getCaptureMovesForChainAt(r, c);
 return caps && caps.length > 0;
@@ -22,6 +30,7 @@ function hideAIThinking() {
   setMessage(""); // or keep previous message if you want
 }
 const BOARD_SIZE = 10;
+
 
 // Piece encoding
 // 0 empty
@@ -361,7 +370,7 @@ function getAllCaptureMovesFor(color){
 }
 
 function getAllLegalMovesFor(color){
-  const caps = getAllCaptureMovesFor(color);
+  const caps = getMaxCaptureMoves(color);
   if(caps.length>0) return {moves:caps, forced:true};
   // quiet moves
   const pieces = getAllPiecesFor(color);
@@ -526,15 +535,75 @@ function getMovesForSelection(r,c){
   }
 
   // Mandatory capture rule
-  const capsAll = getAllCaptureMovesFor(turn);
-  if(capsAll.length>0){
-    // Only capture moves are legal
-    return getCaptureMovesFrom(r,c);
-  }
+ const capsAll = getMaxCaptureMoves(turn);
+if(capsAll.length>0){
+  return capsAll.filter(m => m.from.r===r && m.from.c===c);
+}
 
   return getQuietMovesFrom(r,c);
 }
 
+// ---------- LONGEST CAPTURE SEARCH (International rule) ----------
+function exploreCaptureChains(b, r, c, piece, visited=[]){
+  const moves = getCaptureMovesFromBoard(b, r, c);
+  if(!moves.length){
+    return [{length:0, sequence:[]}];
+  }
+
+  let results = [];
+
+  for(const m of moves){
+    const nb = cloneBoard(b);
+
+    nb[r][c]=0;
+    nb[m.to.r][m.to.c]=piece;
+    for(const cap of m.captures){
+      nb[cap.r][cap.c]=0;
+    }
+
+    const next = exploreCaptureChains(nb, m.to.r, m.to.c, piece, visited);
+    for(const n of next){
+      results.push({
+        length: 1 + n.length,
+        sequence: [m, ...n.sequence]
+      });
+    }
+  }
+
+  return results;
+}
+
+function getMaxCaptureMoves(color){
+  const pieces = getAllPiecesFor(color);
+  let allChains=[];
+  let maxLen=0;
+
+  for(const pos of pieces){
+    const p = board[pos.r][pos.c];
+    const chains = exploreCaptureChains(board, pos.r, pos.c, p);
+
+    for(const ch of chains){
+      if(ch.length>0){
+        if(ch.length>maxLen){
+          maxLen=ch.length;
+          allChains=[{start:pos, chain:ch.sequence}];
+        }else if(ch.length===maxLen){
+          allChains.push({start:pos, chain:ch.sequence});
+        }
+      }
+    }
+  }
+
+  // convert back to move list
+  let moves=[];
+  for(const item of allChains){
+    if(item.chain.length>0){
+      moves.push(item.chain[0]);
+    }
+  }
+
+  return moves;
+}
 // ---------- Online (Firebase) ----------
 function setOnlineMode(on){
   online = on;
@@ -773,18 +842,8 @@ function getMovesForColorOnBoard(b, color, mustChain=null){
   }
 
   // mandatory capture
-  const allCaps=[];
-  for(let r=0;r<BOARD_SIZE;r++){
-    for(let c=0;c<BOARD_SIZE;c++){
-      const p=b[r][c];
-      if(p===0) continue;
-      if(color===RED && !isR(p)) continue;
-      if(color===BLACK && !isB(p)) continue;
-      const ms=capsFrom(r,c);
-      for(const m of ms) allCaps.push(m);
-    }
-  }
-  if(allCaps.length) return allCaps;
+ const allCaps = getMaxCaptureMovesOnBoard(b, color);
+if(allCaps.length) return allCaps;
 
   const all=[];
   for(let r=0;r<BOARD_SIZE;r++){
@@ -799,7 +858,13 @@ function getMovesForColorOnBoard(b, color, mustChain=null){
   }
   return all;
 }
-
+function getMaxCaptureMovesOnBoard(b, color){
+  const original = board;
+  board = b;
+  const result = getMaxCaptureMoves(color);
+  board = original;
+  return result;
+}
 function applyMoveOnBoard(b, move){
   const nb = b.map(row=>row.slice());
   const p = nb[move.from.r][move.from.c];
