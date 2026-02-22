@@ -112,6 +112,35 @@ function cloneBoard(b){ return b.map(row => row.slice()); }
 
 function setMessage(msg){ messageEl.textContent = msg || ""; }
 
+// ===== FORCED MOVE VISUALS =====
+function clearForcedHighlights(){
+  document.querySelectorAll('.forced-piece').forEach(e=>e.classList.remove('forced-piece'));
+  document.querySelectorAll('.forced-destination').forEach(e=>e.classList.remove('forced-destination'));
+}
+
+function highlightForcedPiece(pieceEl){
+  if(!pieceEl) return;
+  pieceEl.classList.add('forced-piece');
+}
+
+function highlightForcedDestinations(destinations){
+  destinations.forEach(d=>{
+    const sq = document.querySelector(`.square[data-r='${d.r}'][data-c='${d.c}']`);
+    if(sq) sq.classList.add('forced-destination');
+  });
+}
+
+function applyForcedVisuals(){
+  clearForcedHighlights();
+  if(!legalMoves || !legalMoves.length) return;
+  if(!legalMoves.some(m => m.captures && m.captures.length)) return;
+
+  const src = legalMoves[0].from;
+  const piece = document.querySelector(`.square[data-r='${src.r}'][data-c='${src.c}'] .piece`);
+  highlightForcedPiece(piece);
+  highlightForcedDestinations(legalMoves.map(m=>m.to));
+}
+
 function normalizeBoard(b){
   if(!b) return null;
   if(Array.isArray(b)) return b;
@@ -191,34 +220,7 @@ function buildBoardUI(){
   }
 }
 
-// ===== FORCED MOVE VISUALS =====
-function clearForcedHighlights(){
-  document.querySelectorAll('.forced-piece').forEach(e=>e.classList.remove('forced-piece'));
-  document.querySelectorAll('.forced-destination').forEach(e=>e.classList.remove('forced-destination'));
-}
 
-function highlightForcedPiece(pieceEl){
-  if(!pieceEl) return;
-  pieceEl.classList.add('forced-piece');
-}
-
-function highlightForcedDestinations(destinations){
-  destinations.forEach(d=>{
-    const sq = document.querySelector(`.square[data-r='${d.r}'][data-c='${d.c}']`);
-    if(sq) sq.classList.add('forced-destination');
-  });
-}
-
-function applyForcedVisuals(){
-  clearForcedHighlights();
-  if(!legalMoves || !legalMoves.length) return;
-  if(!legalMoves.some(m => m.captures && m.captures.length)) return;
-
-  const src = legalMoves[0].from;
-  const piece = document.querySelector(`.square[data-r='${src.r}'][data-c='${src.c}'] .piece`);
-  highlightForcedPiece(piece);
-  highlightForcedDestinations(legalMoves.map(m=>m.to));
-}
 function render(){
   if(!board) return;
 
