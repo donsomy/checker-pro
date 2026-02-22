@@ -258,3 +258,12 @@ border-radius: 50%;
 50% { box-shadow: 0 0 16px rgba(255,215,0,1); }
 100% { box-shadow: 0 0 6px rgba(255,215,0,0.5); }
 }
+
+.forced-piece {
+  outline: 3px solid #ffcc00;
+  box-shadow: 0 0 12px #ffcc00;
+}
+
+.forced-destination {
+  background: radial-gradient(circle, rgba(255,0,0,0.65) 30%, transparent 70%);
+}
