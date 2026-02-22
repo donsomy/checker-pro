@@ -262,12 +262,11 @@ piece.classList.add("capture-glow");
     if(m.captures && m.captures.length>0) sq.classList.add("capture");
   }
 
-  updateBars();
-  updateTurnLabel();
    updateBars();
-updateTurnLabel();
-applyForcedVisuals();
-}
+  updateTurnLabel();
+
+  // wait until pieces exist in DOM before highlighting
+  setTimeout(applyForcedVisuals, 0);
 }
 
 function getSquareEl(r,c){
