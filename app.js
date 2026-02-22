@@ -510,13 +510,20 @@ if(!isLegalDest) return;
 
   // Select if clicking own piece
  if(p!==0 && color===turn){
+
+  // enforce forced piece rule
   const forced = getMaxCaptureMoves(turn);
   if(forced.length && !forced.some(m => m.from.r===r && m.from.c===c)){
-    return; // cannot select non-forced piece
+    return;
   }
 
-  // If no selection, ignore
-  if(!selected) return;
+  // select piece
+  selected = {r,c};
+  legalMoves = getMovesForSelection(r,c);
+
+  render();
+  return;
+}
 
   // Try move
   const move = legalMoves.find(m => m.to.r===r && m.to.c===c);
