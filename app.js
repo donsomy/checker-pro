@@ -441,14 +441,19 @@ function applyMove(move, playSounds=true){
     }
   }
 
-  // Promotion: international promotes when reaching far edge
+  // ---- PROMOTION DETECTION (INTERNATIONAL RULE) ----
+  let promoted = false;
   let moved = board[move.to.r][move.to.c];
+
   if(!isKing(moved)){
     if(ownerOf(moved)===RED && move.to.r===0){
       board[move.to.r][move.to.c] = makeKing(moved);
+      promoted = true;
       if(playSounds) playSfx(sfxCrown);
-    }else if(ownerOf(moved)===BLACK && move.to.r===BOARD_SIZE-1){
+    }
+    else if(ownerOf(moved)===BLACK && move.to.r===BOARD_SIZE-1){
       board[move.to.r][move.to.c] = makeKing(moved);
+      promoted = true;
       if(playSounds) playSfx(sfxCrown);
     }
   }
@@ -458,7 +463,8 @@ function applyMove(move, playSounds=true){
     else playSfx(sfxMove);
   }
 
-  return didCapture;
+  // IMPORTANT: return both values
+  return {didCapture, promoted};
 }
 
 function checkWinner(){
@@ -529,22 +535,22 @@ if(!isLegalDest) return;
   const move = legalMoves.find(m => m.to.r===r && m.to.c===c);
   if(!move) return;
 
-  const didCapture = applyMove(move, true);
-
+const result = applyMove(move, true);
+const didCapture = result.didCapture;
+const promoted = result.promoted;
   // If capture, check chain
-  if(didCapture){
-    const nextCaps = getCaptureMovesForChainAt(r,c);
-    if(nextCaps.length>0){
-      mustContinueChain = {r,c};
-      selected = {r,c};
-      legalMoves = nextCaps; // must capture
-      render();
-      // Sync online
-      if(online) pushGameState();
-      return;
-    }
+  // INTERNATIONAL RULE: if crowned, stop the move immediately
+if(didCapture && !promoted){
+  const nextCaps = getCaptureMovesForChainAt(r,c);
+  if(nextCaps.length>0){
+    mustContinueChain = {r,c};
+    selected = {r,c};
+    legalMoves = nextCaps;
+    render();
+    if(online) pushGameState();
+    return;
   }
-
+}
   // End turn
   mustContinueChain = null;
   selected = null;
@@ -1058,19 +1064,22 @@ function applyMoveOnBoard(b, move){
 
   setTimeout(() => {
 
-    const didCapture = applyMove(bestMove, true);
+   const result = applyMove(bestMove, true);
+const didCapture = result.didCapture;
+const promoted = result.promoted;
 
-    if(didCapture){
-      const nextCaps = getCaptureMovesForChainAt(bestMove.to.r, bestMove.to.c);
-      if(nextCaps.length){
-        mustContinueChain = {r:bestMove.to.r, c:bestMove.to.c};
-        selected = {r:bestMove.to.r, c:bestMove.to.c};
-        legalMoves = nextCaps;
-        render();
-        setTimeout(()=> aiMakeMove(), 300);
-        return;
-      }
-    }
+   // INTERNATIONAL RULE: crowned piece cannot continue capture
+if(didCapture && !promoted){
+  const nextCaps = getCaptureMovesForChainAt(bestMove.to.r, bestMove.to.c);
+  if(nextCaps.length){
+    mustContinueChain = {r:bestMove.to.r, c:bestMove.to.c};
+    selected = {r:bestMove.to.r, c:bestMove.to.c};
+    legalMoves = nextCaps;
+    render();
+    setTimeout(()=> aiMakeMove(), 300);
+    return;
+  }
+}
 
     mustContinueChain = null;
     selected = null;
