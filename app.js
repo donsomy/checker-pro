@@ -103,10 +103,10 @@ function ownerOf(p){
   return null;
 }
 function makeKing(p){
-  if(p===1) return 3;
+  if(p===1) turn 3;
   if(p===2) return 4;
   return p;
-}
+}re
 
 function cloneBoard(b){ return b.map(row => row.slice()); }
 
@@ -442,21 +442,23 @@ function applyMove(move, playSounds=true){
   }
 
   // ---- PROMOTION DETECTION (INTERNATIONAL RULE) ----
-  let promoted = false;
-  let moved = board[move.to.r][move.to.c];
+ // ---- INTERNATIONAL DELAYED PROMOTION ----
+let promoted = false;
+let moved = board[move.to.r][move.to.c];
 
-  if(!isKing(moved)){
-    if(ownerOf(moved)===RED && move.to.r===0){
-      board[move.to.r][move.to.c] = makeKing(moved);
-      promoted = true;
-      if(playSounds) playSfx(sfxCrown);
-    }
-    else if(ownerOf(moved)===BLACK && move.to.r===BOARD_SIZE-1){
-      board[move.to.r][move.to.c] = makeKing(moved);
-      promoted = true;
-      if(playSounds) playSfx(sfxCrown);
-    }
-  }
+// detect if piece reached king row
+let reachedBackRank = false;
+if(!isKing(moved)){
+  if(ownerOf(moved)===RED && move.to.r===0) reachedBackRank = true;
+  if(ownerOf(moved)===BLACK && move.to.r===BOARD_SIZE-1) reachedBackRank = true;
+}
+
+// ONLY crown if it was NOT a capture
+if(reachedBackRank && !didCapture){
+  board[move.to.r][move.to.c] = makeKing(moved);
+  promoted = true;
+  if(playSounds) playSfx(sfxCrown);
+}
 
   if(playSounds){
     if(didCapture) playSfx(sfxCapture);
@@ -551,12 +553,24 @@ if(didCapture && !promoted){
     return;
   }
 }
-  // End turn
-  mustContinueChain = null;
-  selected = null;
-  legalMoves = [];
-  turn = (turn===RED) ? BLACK : RED;
-
+  
+  // delayed crowning after full capture sequence
+let endPiece = board[r][c];
+if(endPiece===1 && r===0){
+  board[r][c]=3;
+  playSfx(sfxCrown);
+}
+if(endPiece===2 && r===BOARD_SIZE-1){
+  board[r][c]=4;
+  playSfx(sfxCrown);
+}
+   
+// End turn
+mustContinueChain = null;
+selected = null;
+legalMoves = [];
+turn = (turn===RED) ? BLACK : RED;
+   
   const winner = checkWinner();
   if(winner){
     setMessage(`${winner.toUpperCase()} wins!`);
@@ -1081,6 +1095,16 @@ if(didCapture && !promoted){
   }
 }
 
+     // delayed crowning after full capture sequence (AI)
+let endPiece = board[bestMove.to.r][bestMove.to.c];
+if(endPiece===1 && bestMove.to.r===0){
+  board[bestMove.to.r][bestMove.to.c]=3;
+  playSfx(sfxCrown);
+}
+if(endPiece===2 && bestMove.to.r===BOARD_SIZE-1){
+  board[bestMove.to.r][bestMove.to.c]=4;
+  playSfx(sfxCrown);
+}
     mustContinueChain = null;
     selected = null;
     legalMoves = [];
