@@ -464,6 +464,7 @@ if(reachedBackRank && !didCapture){
     if(didCapture) playSfx(sfxCapture);
     else playSfx(sfxMove);
   }
+}
 
   // IMPORTANT: return both values
   return {didCapture, promoted};
