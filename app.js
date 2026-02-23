@@ -361,7 +361,7 @@ function applyKingChainConstraints(moves, from, constraints=null){
   });
 }
 
-function nextChainConstraintsAfterMove(move, piece constraints=null){
+function nextChainConstraintsAfterMove(move, piece, constraints=null){
   if(!move.captures || !move.captures.length || !isKing(piece)) return null;
  const moveDr = Math.sign(move.to.r - move.from.r);
   const moveDc = Math.sign(move.to.c - move.from.c);
