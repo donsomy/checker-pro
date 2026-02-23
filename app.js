@@ -103,10 +103,10 @@ function ownerOf(p){
   return null;
 }
 function makeKing(p){
-  if(p===1) turn 3;
+  if(p===1) return 3;
   if(p===2) return 4;
   return p;
-}re
+}
 
 function cloneBoard(b){ return b.map(row => row.slice()); }
 
@@ -553,16 +553,16 @@ if(didCapture && !promoted){
 
    
 // End turn
-    // delayed crowning after full capture sequence
+// delayed crowning after full capture sequence   
 let endPiece = board[r][c];
 if(endPiece===1 && r===0){
   board[r][c]=3;
   playSfx(sfxCrown);
-
+}
 if(endPiece===2 && r===BOARD_SIZE-1){
   board[r][c]=4;
   playSfx(sfxCrown);
-
+}
 mustContinueChain = null;
 selected = null;
 legalMoves = [];
@@ -574,7 +574,8 @@ turn = (turn===RED) ? BLACK : RED;
     playSfx(sfxWin);
   }else{
     setMessage("");
-  }
+ 
+}
 
   render();
 
@@ -945,7 +946,7 @@ function applyMoveOnBoard(b, move){
   return nb;
 }
 
- function aiMakeMove(){
+function aiMakeMove(){
 
   const status = document.getElementById("aiStatus");
   if(status){
@@ -1092,15 +1093,16 @@ if(didCapture && !promoted){
   }
 }
 
-     // delayed crowning after full capture sequence (AI)
-let endPiece = board[bestMove.to.r][bestMove.to.c];
-if(endPiece===1 && bestMove.to.r===0){
-  board[bestMove.to.r][bestMove.to.c]=3;
-  playSfx(sfxCrown);
-
-if(endPiece===2 && bestMove.to.r===BOARD_SIZE-1){
-  board[bestMove.to.r][bestMove.to.c]=4;
-  playSfx(sfxCrown);
+  // delayed crowning after full capture sequence (AI)
+    let endPiece = board[bestMove.to.r][bestMove.to.c];
+    if(endPiece===1 && bestMove.to.r===0){
+      board[bestMove.to.r][bestMove.to.c]=3;
+      playSfx(sfxCrown);
+    }
+    if(endPiece===2 && bestMove.to.r===BOARD_SIZE-1){
+      board[bestMove.to.r][bestMove.to.c]=4;
+      playSfx(sfxCrown);
+    }
 
     mustContinueChain = null;
     selected = null;
@@ -1123,7 +1125,7 @@ if(endPiece===2 && bestMove.to.r===BOARD_SIZE-1){
 
   }, thinkTime);
 
- }
+}
     
 
 // ---------- Buttons ----------
