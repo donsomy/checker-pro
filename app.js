@@ -47,6 +47,7 @@ const turnLabel = document.getElementById("turnLabel");
 const messageEl = document.getElementById("message");
 
 const restartBtn = document.getElementById("restartBtn");
+const undoBtn = document.getElementById("undoBtn");
 const createRoomBtn = document.getElementById("createRoomBtn");
 const joinRoomBtn = document.getElementById("joinRoomBtn");
 const modeBtn = document.getElementById("modeBtn");
@@ -90,6 +91,7 @@ let myColor = null; // "red" or "black"
 let waitingForPlayer = false;
 
 let mustContinueChain = null; // {r,c} piece that must continue capture chain
+let moveHistory = [];
 
 // ---------- Helpers ----------
 function inBounds(r,c){ return r>=0 && r<BOARD_SIZE && c>=0 && c<BOARD_SIZE; }
@@ -111,6 +113,37 @@ function makeKing(p){
 function cloneBoard(b){ return b.map(row => row.slice()); }
 
 function setMessage(msg){ messageEl.textContent = msg || ""; }
+
+function snapshotState(){
+  return {
+    board: cloneBoard(board),
+    turn,
+    selected: selected ? {...selected} : null,
+    legalMoves: legalMoves.map(m => ({
+      from: {...m.from},
+      to: {...m.to},
+      captures: (m.captures || []).map(cap => ({...cap}))
+    })),
+    mustContinueChain: mustContinueChain ? {...mustContinueChain} : null
+  };
+}
+
+function saveStateForUndo(){
+  moveHistory.push(snapshotState());
+}
+
+function restoreState(state){
+  if(!state) return;
+  board = cloneBoard(state.board);
+  turn = state.turn;
+  selected = state.selected ? {...state.selected} : null;
+  legalMoves = (state.legalMoves || []).map(m => ({
+    from: {...m.from},
+    to: {...m.to},
+    captures: (m.captures || []).map(cap => ({...cap}))
+  }));
+  mustContinueChain = state.mustContinueChain ? {...state.mustContinueChain} : null;
+}
 
 // ===== FORCED MOVE VISUALS =====
 function clearForcedHighlights(){
@@ -198,6 +231,7 @@ function initBoard(){
   selected = null;
   legalMoves = [];
   mustContinueChain = null;
+  moveHistory = [];
   setMessage("");
   waitingForPlayer = false;
   updateBars();
@@ -564,6 +598,7 @@ if(!isLegalDest) return;
   const move = legalMoves.find(m => m.to.r===r && m.to.c===c);
   if(!move) return;
    
+saveStateForUndo();
 const movedPieceBeforeCapture = board[move.from.r][move.from.c];
 const result = applyMove(move, true);
 const didCapture = result.didCapture;
@@ -809,6 +844,7 @@ function listenToRoom(id){
     // Reset selection each sync
     selected = null;
     legalMoves = [];
+    moveHistory = [];
 
     if(waitingForPlayer){
       setMessage("Waiting for player to join…");
@@ -1126,6 +1162,7 @@ function aiMakeMove(){
 
   setTimeout(() => {
      
+   saveStateForUndo();
    const movedPieceBeforeCapture = board[bestMove.from.r][bestMove.from.c];
    const result = applyMove(bestMove, true);
 const didCapture = result.didCapture;
@@ -1194,6 +1231,22 @@ restartBtn.addEventListener("click", ()=>{
   if(mode==="ai" && turn===aiSide){
     setTimeout(()=> aiMakeMove(), 250);
   }
+});
+
+undoBtn.addEventListener("click", ()=>{
+  if(online){
+    setMessage("Undo is unavailable in online mode.");
+    return;
+  }
+  if(!moveHistory.length){
+    setMessage("Nothing to undo.");
+    return;
+  }
+
+  const prev = moveHistory.pop();
+  restoreState(prev);
+  setMessage("Move undone.");
+  render();
 });
 
 modeBtn.addEventListener("click", ()=>{
