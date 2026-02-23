@@ -309,7 +309,22 @@ function dirsForMan(color){
 function allDiagDirs(){
   return [[1,1],[1,-1],[-1,1],[-1,-1]];
 }
+function forwardStepFor(color){
+  return color===RED ? -1 : 1;
+}
 
+function applyKingForwardConstraint(moves, from, constraints=null){
+  if(!constraints || !constraints.forwardOnly) return moves;
+  return moves.filter(m => (m.to.r - from.r) * constraints.forwardDr > 0);
+}
+
+function nextChainConstraintsAfterMove(move, piece){
+  if(!move.captures || !move.captures.length || !isKing(piece)) return null;
+  const color = ownerOf(piece);
+  const forwardDr = forwardStepFor(color);
+  if((move.to.r - move.from.r) * forwardDr <= 0) return null;
+  return {forwardOnly:true, forwardDr};
+}
 // Non-capture moves
 function getQuietMovesFrom(r,c){
   const p = board[r][c];
@@ -403,8 +418,8 @@ function getAllCaptureMovesFor(color){
   return all;
 }
 
-function getAllLegalMovesFor(color){
-  const caps = getMaxCaptureMoves(color);
+function getCaptureMovesForChainAt(r,c, constraints=null){
+  const moves = applyKingForwardConstraint(getCaptureMovesFrom(r,c), {r,c}, constraints);;
   if(caps.length>0) return {moves:caps, forced:true};
   // quiet moves
   const pieces = getAllPiecesFor(color);
@@ -424,8 +439,24 @@ function getCaptureMovesForChainAt(r,c){
   for(const m of moves){
     if(m.captures.length > max) max = m.captures.length;
   }
-  return moves.filter(m => m.captures.length === max);
-}
+  const longestMoves = moves.filter(m => m.captures.length === max);
+  let maxKings = 0;
+  for(const m of longestMoves){
+    let kingsCaptured = 0;
+    for(const cap of m.captures){
+      if(isKing(board[cap.r][cap.c])) kingsCaptured++;
+    }
+    if(kingsCaptured > maxKings) maxKings = kingsCaptured;
+  }
+
+  return longestMoves.filter(m => {
+    let kingsCaptured = 0;
+    for(const cap of m.captures){
+      if(isKing(board[cap.r][cap.c])) kingsCaptured++;
+    }
+    return kingsCaptured === maxKings;
+  });
+ }   
 
 // ---------- Apply move ----------
 function applyMove(move, playSounds=true){
@@ -532,16 +563,18 @@ if(!isLegalDest) return;
   // Try move
   const move = legalMoves.find(m => m.to.r===r && m.to.c===c);
   if(!move) return;
-
+   
+const movedPieceBeforeCapture = board[move.from.r][move.from.c];
 const result = applyMove(move, true);
 const didCapture = result.didCapture;
 const promoted = result.promoted;
   // If capture, check chain
   // INTERNATIONAL RULE: if crowned, stop the move immediately
 if(didCapture && !promoted){
-  const nextCaps = getCaptureMovesForChainAt(r,c);
+  const chainConstraints = nextChainConstraintsAfterMove(move, movedPieceBeforeCapture);
+  const nextCaps = getCaptureMovesForChainAt(r,c, chainConstraints);
   if(nextCaps.length>0){
-    mustContinueChain = {r,c};
+    mustContinueChain = {r,c, ...chainConstraints};
     selected = {r,c};
     legalMoves = nextCaps;
     render();
@@ -595,7 +628,7 @@ function getMovesForSelection(r,c){
 
   // If chain forced, only captures
   if(mustContinueChain){
-    return getCaptureMovesForChainAt(r,c);
+     return getCaptureMovesForChainAt(r,c, mustContinueChain);
   }
 
   // Mandatory capture rule
@@ -611,17 +644,19 @@ if(capsAll.length>0){
 function exploreCaptureChains(b, r, c, piece, visited=[]){
   const moves = getCaptureMovesFromBoard(b, r, c);
   if(!moves.length){
-    return [{length:0, sequence:[]}];
+    return [{length:0, kingsCaptured:0, sequence:[]}];
   }
 
   let results = [];
 
   for(const m of moves){
     const nb = cloneBoard(b);
-
+    let kingsCapturedThisMove = 0;
+     
     nb[r][c]=0;
     nb[m.to.r][m.to.c]=piece;
     for(const cap of m.captures){
+      if(isKing(b[cap.r][cap.c])) kingsCapturedThisMove++;
       nb[cap.r][cap.c]=0;
     }
 
@@ -629,6 +664,7 @@ function exploreCaptureChains(b, r, c, piece, visited=[]){
     for(const n of next){
       results.push({
         length: 1 + n.length,
+        kingsCaptured: kingsCapturedThisMove + n.kingsCaptured,
         sequence: [m, ...n.sequence]
       });
     }
@@ -641,6 +677,7 @@ function getMaxCaptureMoves(color){
   const pieces = getAllPiecesFor(color);
   let allChains=[];
   let maxLen=0;
+  let maxKings=0;
 
   for(const pos of pieces){
     const p = board[pos.r][pos.c];
@@ -650,9 +687,15 @@ function getMaxCaptureMoves(color){
       if(ch.length>0){
         if(ch.length>maxLen){
           maxLen=ch.length;
-          allChains=[{start:pos, chain:ch.sequence}];
+          maxKings=ch.kingsCaptured;
+          allchains=[{start:pos, chain:ch.sequence}];
         }else if(ch.length===maxLen){
+           if(ch.kingsCaptured>maxKings){
+            maxKings=ch.kingsCaptured;
+            allChains=[{start:pos, chain:ch.sequence}];
+          }else if(ch.kingsCaptured===maxKings){
           allChains.push({start:pos, chain:ch.sequence});
+          }
         }
       }
     }
@@ -902,7 +945,8 @@ function getMovesForColorOnBoard(b, color, mustChain=null){
 
   // if mustChain, only capture moves for that piece
   if(mustChain){
-    return capsFrom(mustChain.r, mustChain.c);
+    const chainCaps = capsFrom(mustChain.r, mustChain.c);
+    return applyKingForwardConstraint(chainCaps, mustChain, mustChain);
   }
 
   // mandatory capture
@@ -986,12 +1030,14 @@ function aiMakeMove(){
     if(maximizing){
       let best=-Infinity;
       for(const m of movesHere){
+        const movingPiece = b[m.from.r][m.from.c];
         const nb = applyMoveOnBoard(b,m);
 
         let nextChain=null;
         if(m.captures && m.captures.length){
-          const caps = getMovesForColorOnBoard(nb, turnColor, {r:m.to.r, c:m.to.c});
-          if(caps.length) nextChain = {r:m.to.r, c:m.to.c};
+          const chainConstraints = nextChainConstraintsAfterMove(m, movingPiece);
+          const caps = getMovesForColorOnBoard(nb, turnColor, {r:m.to.r, c:m.to.c, ...chainConstraints});
+          if(caps.length) nextChain = {r:m.to.r, c:m.to.c, ...chainConstraints};
         }
 
         const nextTurn = nextChain ? turnColor : (turnColor===RED?BLACK:RED);
@@ -1005,12 +1051,14 @@ function aiMakeMove(){
     }else{
       let best=Infinity;
       for(const m of movesHere){
+        const movingPiece = b[m.from.r][m.from.c];
         const nb = applyMoveOnBoard(b,m);
 
         let nextChain=null;
         if(m.captures && m.captures.length){
-          const caps = getMovesForColorOnBoard(nb, turnColor, {r:m.to.r, c:m.to.c});
-          if(caps.length) nextChain = {r:m.to.r, c:m.to.c};
+         const chainConstraints = nextChainConstraintsAfterMove(m, movingPiece);
+          const caps = getMovesForColorOnBoard(nb, turnColor, {r:m.to.r, c:m.to.c, ...chainConstraints});
+          if(caps.length) nextChain = {r:m.to.r, c:m.to.c, ...chainConstraints};
         }
 
         const nextTurn = nextChain ? turnColor : (turnColor===RED?BLACK:RED);
@@ -1049,12 +1097,14 @@ function aiMakeMove(){
   const noise = (aiDifficultyEl.value==="legendary") ? 0.03 : 0.0;
 
   for(const m of moves){
+    const movingPiece = board[m.from.r][m.from.c];
     const nb = applyMoveOnBoard(board, m);
 
     let nextChain=null;
     if(m.captures && m.captures.length){
-      const caps = getMovesForColorOnBoard(nb, color, {r:m.to.r, c:m.to.c});
-      if(caps.length) nextChain = {r:m.to.r, c:m.to.c};
+     const chainConstraints = nextChainConstraintsAfterMove(m, movingPiece);
+      const caps = getMovesForColorOnBoard(nb, color, {r:m.to.r, c:m.to.c, ...chainConstraints});
+      if(caps.length) nextChain = {r:m.to.r, c:m.to.c, ...chainConstraints};
     }
 
     const nextTurn = nextChain ? color : (color===RED?BLACK:RED);
@@ -1075,16 +1125,18 @@ function aiMakeMove(){
   const thinkTime = 400 + depth * 120; // deeper AI thinks longer
 
   setTimeout(() => {
-
+     
+   const movedPieceBeforeCapture = board[bestMove.from.r][bestMove.from.c];
    const result = applyMove(bestMove, true);
 const didCapture = result.didCapture;
 const promoted = result.promoted;
 
    // INTERNATIONAL RULE: crowned piece cannot continue capture
 if(didCapture && !promoted){
-  const nextCaps = getCaptureMovesForChainAt(bestMove.to.r, bestMove.to.c);
+ const chainConstraints = nextChainConstraintsAfterMove(bestMove, movedPieceBeforeCapture);
+  const nextCaps = getCaptureMovesForChainAt(bestMove.to.r, bestMove.to.c, chainConstraints);
   if(nextCaps.length){
-    mustContinueChain = {r:bestMove.to.r, c:bestMove.to.c};
+    mustContinueChain = {r:bestMove.to.r, c:bestMove.to.c, ...chainConstraints};
     selected = {r:bestMove.to.r, c:bestMove.to.c};
     legalMoves = nextCaps;
     render();
