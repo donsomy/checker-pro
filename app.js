@@ -558,11 +558,11 @@ let endPiece = board[r][c];
 if(endPiece===1 && r===0){
   board[r][c]=3;
   playSfx(sfxCrown);
-}
+
 if(endPiece===2 && r===BOARD_SIZE-1){
   board[r][c]=4;
   playSfx(sfxCrown);
-}
+
 mustContinueChain = null;
 selected = null;
 legalMoves = [];
