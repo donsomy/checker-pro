@@ -464,6 +464,11 @@ if(reachedBackRank && !didCapture){
     if(didCapture) playSfx(sfxCapture);
     else playSfx(sfxMove);
   }
+else if(ownerOf(moved)===BLACK && move.to.r===BOARD_SIZE-1){
+    board[move.to.r][move.to.c] = makeKing(moved);
+    promoted = true;
+    if(playSounds) playSfx(sfxCrown);
+  }
 }
 
   // IMPORTANT: return both values
