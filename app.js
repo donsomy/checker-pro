@@ -343,21 +343,33 @@ function dirsForMan(color){
 function allDiagDirs(){
   return [[1,1],[1,-1],[-1,1],[-1,-1]];
 }
-function forwardStepFor(color){
-  return color===RED ? -1 : 1;
+function applyKingChainConstraints(moves, from, constraints=null){
+  if(!constraints) return moves;
+
+  return moves.filter(m => {
+    const moveDr = Math.sign(m.to.r - from.r);
+    const moveDc = Math.sign(m.to.c - from.c);
+
+    // King cannot reverse on the same diagonal within a single capture turn.
+    if(constraints.lastDirDr!=null && constraints.lastDirDc!=null){
+      if(moveDr === -constraints.lastDirDr && moveDc === -constraints.lastDirDc){
+        return false;
+      }
+    }
+
+ return true;
+  });
 }
 
-function applyKingForwardConstraint(moves, from, constraints=null){
-  if(!constraints || !constraints.forwardOnly) return moves;
-  return moves.filter(m => (m.to.r - from.r) * constraints.forwardDr > 0);
-}
-
-function nextChainConstraintsAfterMove(move, piece){
+function nextChainConstraintsAfterMove(move, piece constraints=null){
   if(!move.captures || !move.captures.length || !isKing(piece)) return null;
-  const color = ownerOf(piece);
-  const forwardDr = forwardStepFor(color);
-  if((move.to.r - move.from.r) * forwardDr <= 0) return null;
-  return {forwardOnly:true, forwardDr};
+ const moveDr = Math.sign(move.to.r - move.from.r);
+  const moveDc = Math.sign(move.to.c - move.from.c);
+  return {
+    ...(constraints || {}),
+    lastDirDr: moveDr,
+    lastDirDc: moveDc
+  };
 }
 // Non-capture moves
 function getQuietMovesFrom(r,c){
@@ -453,7 +465,7 @@ function getAllCaptureMovesFor(color){
 }
 
 function getCaptureMovesForChainAt(r,c, constraints=null){
-  const moves = applyKingForwardConstraint(getCaptureMovesFrom(r,c), {r,c}, constraints);
+  const moves = applyKingChainConstraints(getCaptureMovesFrom(r,c), {r,c}, constraints);
   if(!moves.length) return moves;
 
   let max = 0;
@@ -676,8 +688,8 @@ if(capsAll.length>0){
 }
 
 // ---------- LONGEST CAPTURE SEARCH (International rule) ----------
-function exploreCaptureChains(b, r, c, piece, visited=[]){
-  const moves = getCaptureMovesFromBoard(b, r, c);
+function exploreCaptureChains(b, r, c, piece, constraints=null, visited=[]){
+  const moves = applyKingChainConstraints(getCaptureMovesFromBoard(b, r, c), {r,c}, constraints);
   if(!moves.length){
     return [{length:0, kingsCaptured:0, sequence:[]}];
   }
@@ -695,7 +707,8 @@ function exploreCaptureChains(b, r, c, piece, visited=[]){
       nb[cap.r][cap.c]=0;
     }
 
-    const next = exploreCaptureChains(nb, m.to.r, m.to.c, piece, visited);
+    const nextConstraints = nextChainConstraintsAfterMove(m, piece, constraints);
+    const next = exploreCaptureChains(nb, m.to.r, m.to.c, piece, nextConstraints, visited);
     for(const n of next){
       results.push({
         length: 1 + n.length,
@@ -982,7 +995,7 @@ function getMovesForColorOnBoard(b, color, mustChain=null){
   // if mustChain, only capture moves for that piece
   if(mustChain){
     const chainCaps = capsFrom(mustChain.r, mustChain.c);
-    return applyKingForwardConstraint(chainCaps, mustChain, mustChain);
+    return applyKingChainConstraints(chainCaps, mustChain, mustChain);
   }
 
   // mandatory capture
