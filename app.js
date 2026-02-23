@@ -1097,11 +1097,11 @@ let endPiece = board[bestMove.to.r][bestMove.to.c];
 if(endPiece===1 && bestMove.to.r===0){
   board[bestMove.to.r][bestMove.to.c]=3;
   playSfx(sfxCrown);
-}
+
 if(endPiece===2 && bestMove.to.r===BOARD_SIZE-1){
   board[bestMove.to.r][bestMove.to.c]=4;
   playSfx(sfxCrown);
-}
+
     mustContinueChain = null;
     selected = null;
     legalMoves = [];
