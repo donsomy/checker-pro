@@ -441,8 +441,9 @@ function applyMove(move, playSounds=true){
     }
   }
 
-  // ---- PROMOTION DETECTION (INTERNATIONAL RULE) ----
- // ---- INTERNATIONAL DELAYED PROMOTION ----
+ 
+// detect if piece reached king row
+// ---- INTERNATIONAL DELAYED PROMOTION ----
 let promoted = false;
 let moved = board[move.to.r][move.to.c];
 
@@ -458,17 +459,6 @@ if(reachedBackRank && !didCapture){
   board[move.to.r][move.to.c] = makeKing(moved);
   promoted = true;
   if(playSounds) playSfx(sfxCrown);
-}
-
-  if(playSounds){
-    if(didCapture) playSfx(sfxCapture);
-    else playSfx(sfxMove);
-  }
-else if(ownerOf(moved)===BLACK && move.to.r===BOARD_SIZE-1){
-    board[move.to.r][move.to.c] = makeKing(moved);
-    promoted = true;
-    if(playSounds) playSfx(sfxCrown);
-  }
 }
 
   // IMPORTANT: return both values
@@ -560,7 +550,10 @@ if(didCapture && !promoted){
   }
 }
   
-  // delayed crowning after full capture sequence
+
+   
+// End turn
+    // delayed crowning after full capture sequence
 let endPiece = board[r][c];
 if(endPiece===1 && r===0){
   board[r][c]=3;
@@ -570,8 +563,6 @@ if(endPiece===2 && r===BOARD_SIZE-1){
   board[r][c]=4;
   playSfx(sfxCrown);
 }
-   
-// End turn
 mustContinueChain = null;
 selected = null;
 legalMoves = [];
