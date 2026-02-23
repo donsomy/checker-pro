@@ -419,20 +419,7 @@ function getAllCaptureMovesFor(color){
 }
 
 function getCaptureMovesForChainAt(r,c, constraints=null){
-  const moves = applyKingForwardConstraint(getCaptureMovesFrom(r,c), {r,c}, constraints);;
-  if(caps.length>0) return {moves:caps, forced:true};
-  // quiet moves
-  const pieces = getAllPiecesFor(color);
-  const all=[];
-  for(const pos of pieces){
-    const moves = getQuietMovesFrom(pos.r,pos.c);
-    for(const m of moves) all.push(m);
-  }
-  return {moves:all, forced:false};
-}
-
-function getCaptureMovesForChainAt(r,c){
-  const moves = getCaptureMovesFrom(r,c);
+  const moves = applyKingForwardConstraint(getCaptureMovesFrom(r,c), {r,c}, constraints);
   if(!moves.length) return moves;
 
   let max = 0;
@@ -456,7 +443,20 @@ function getCaptureMovesForChainAt(r,c){
     }
     return kingsCaptured === maxKings;
   });
- }   
+}
+
+function getAllLegalMovesFor(color){
+  const caps = getMaxCaptureMoves(color);
+  if(caps.length>0) return {moves:caps, forced:true};
+
+  const pieces = getAllPiecesFor(color);
+  const all=[];
+  for(const pos of pieces){
+    const moves = getQuietMovesFrom(pos.r,pos.c);
+    for(const m of moves) all.push(m);
+  }
+  return {moves:all, forced:false};
+} 
 
 // ---------- Apply move ----------
 function applyMove(move, playSounds=true){
@@ -688,7 +688,7 @@ function getMaxCaptureMoves(color){
         if(ch.length>maxLen){
           maxLen=ch.length;
           maxKings=ch.kingsCaptured;
-          allchains=[{start:pos, chain:ch.sequence}];
+          allChains=[{start:pos, chain:ch.sequence}];
         }else if(ch.length===maxLen){
            if(ch.kingsCaptured>maxKings){
             maxKings=ch.kingsCaptured;
